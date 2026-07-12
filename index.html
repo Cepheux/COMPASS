@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>COMPASS: Computational Optimisation for Modular Planning using Academic State Space</title>
+<link rel="stylesheet" href="styles.css" />
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+</head>
+<body>
+
+<header class="app-header">
+  <div class="app-header__row">
+    <div>
+      <div class="app-header__brand">
+        <span class="app-header__mark">COMPASS</span>
+      </div>
+      <div class="app-header__tagline">Computational Optimisation for Modular Planning using Academic State Space. Plan smarter. Graduate stronger.</div>
+    </div>
+    <div class="app-header__gpa">
+      <div class="app-header__gpa-label">Current GPA</div>
+      <div class="app-header__gpa-value" id="header-gpa">:</div>
+    </div>
+  </div>
+  <div class="tab-bar" id="tab-bar" role="tablist" aria-label="Analysis tabs"></div>
+</header>
+
+<main class="tab-panels">
+
+  <section class="tab-panel" id="panel-transcript" role="tabpanel" aria-labelledby="tabbtn-transcript" aria-hidden="false">
+    <h2 class="panel-heading">Transcript <button class="info-btn" data-info="transcript" aria-label="How this works">?</button></h2>
+    <p class="panel-sub">Enter your grades here: everything else in this tool is worked out from what you type into this one table. Start here if this is your first time using this tool.</p>
+    <div class="info-panel" id="info-transcript" hidden></div>
+    <div class="empty-banner">
+      <strong>No academic state yet.</strong>&nbsp;Fill in the highlighted cells below to begin: every other tab is built from this table.
+    </div>
+    <div class="toolbar-row">
+      <button class="link-btn" id="reset-btn">reset all to 0</button>
+      <button class="link-btn" id="random-btn">fill Y1S1-Y3S2 randomly (5 each)</button>
+    </div>
+    <div class="grid-wrap" id="transcript-wrap"></div>
+    <button class="link-btn" id="add-grade-btn">+ add a grade</button>
+  </section>
+
+  <section class="tab-panel" id="panel-reachability" role="tabpanel" aria-labelledby="tabbtn-reachability" aria-hidden="true">
+    <h2 class="panel-heading">What grades do I need? <button class="info-btn" data-info="reachability" aria-label="How this works">?</button></h2>
+    <p class="panel-sub">Pick how many classes you have left and what GPA you're aiming for: see the simplest combination of grades that gets you there, for every combination of the two at once. Hover any cell for the full breakdown.</p>
+    <div class="info-panel" id="info-reachability" hidden></div>
+    <div class="color-legend" id="reachability-legend"></div>
+    <div class="controls-row" id="reachability-controls"></div>
+    <div class="grid-wrap" id="reachability-wrap"></div>
+  </section>
+
+  <section class="tab-panel" id="panel-required-gpa" role="tabpanel" aria-labelledby="tabbtn-required-gpa" aria-hidden="true">
+    <h2 class="panel-heading">Just tell me the number <button class="info-btn" data-info="required-gpa" aria-label="How this works">?</button></h2>
+    <p class="panel-sub">One target GPA, one number of classes left, one straight answer: no grid to read, no other tab needed first.</p>
+    <div class="info-panel" id="info-required-gpa" hidden></div>
+    <div id="required-gpa-body"></div>
+  </section>
+
+  <section class="tab-panel" id="panel-module-load" role="tabpanel" aria-labelledby="tabbtn-module-load" aria-hidden="true">
+    <h2 class="panel-heading">How many classes should I take? <button class="info-btn" data-info="module-load" aria-label="How this works">?</button></h2>
+    <p class="panel-sub">For one target GPA, see how your effort and your real-world odds change as you take on more or fewer classes this semester, and which class count is provably the smart choice.</p>
+    <div class="info-panel" id="info-module-load" hidden></div>
+    <div id="module-load-body"></div>
+  </section>
+
+  <section class="tab-panel" id="panel-plan-compare" role="tabpanel" aria-labelledby="tabbtn-plan-compare" aria-hidden="true">
+    <h2 class="panel-heading">Compare a few options <button class="info-btn" data-info="plan-compare" aria-label="How this works">?</button></h2>
+    <p class="panel-sub">Line up two or three class-count options against the same target GPA and see how they really differ: not just whether each one works, but how doable, sturdy, likely, and risky each one is.</p>
+    <div class="info-panel" id="info-plan-compare" hidden></div>
+    <div id="plan-compare-body"></div>
+  </section>
+
+  <section class="tab-panel" id="panel-bounds" role="tabpanel" aria-labelledby="tabbtn-bounds" aria-hidden="true">
+    <h2 class="panel-heading">My best and worst case <button class="info-btn" data-info="bounds" aria-label="How this works">?</button></h2>
+    <p class="panel-sub">The best possible GPA and the worst possible GPA you could end up with, given how many classes you have left: the honest extremes, no guesswork.</p>
+    <div class="info-panel" id="info-bounds" hidden></div>
+    <div id="bounds-body"></div>
+  </section>
+
+  <section class="tab-panel" id="panel-feasibility" role="tabpanel" aria-labelledby="tabbtn-feasibility" aria-hidden="true">
+    <h2 class="panel-heading">How soon, or how far? <button class="info-btn" data-info="feasibility" aria-label="How this works">?</button></h2>
+    <p class="panel-sub">Aiming high: the fewest classes before a goal becomes possible at all. Worried about falling: how many classes of sustained bad luck it would take before a low target becomes a real risk. Both questions, one chart.</p>
+    <div class="info-panel" id="info-feasibility" hidden></div>
+    <div id="feasibility-body"></div>
+  </section>
+
+  <section class="tab-panel" id="panel-risk" role="tabpanel" aria-labelledby="tabbtn-risk" aria-hidden="true">
+    <h2 class="panel-heading">How bad could it realistically get? <button class="info-btn" data-info="risk" aria-label="How this works">?</button></h2>
+    <p class="panel-sub">A realistic worst case for a target GPA of your choice: not the theoretical extreme, and not a falsely comforting average either. Includes the full spread of possible outcomes and a few named scenarios (normal, hard, excellent, worst semester).</p>
+    <div class="info-panel" id="info-risk" hidden></div>
+    <div id="risk-body"></div>
+  </section>
+
+  <section class="tab-panel" id="panel-entropy" role="tabpanel" aria-labelledby="tabbtn-entropy" aria-hidden="true">
+    <h2 class="panel-heading">How much flexibility do I have left? <button class="info-btn" data-info="entropy" aria-label="How this works">?</button></h2>
+    <p class="panel-sub">An actual count of how many genuinely different outcomes are still realistically open to you as you take on more classes: not just a vague sense of uncertainty.</p>
+    <div class="info-panel" id="info-entropy" hidden></div>
+    <div id="entropy-body"></div>
+  </section>
+
+  <section class="tab-panel" id="panel-bayesian" role="tabpanel" aria-labelledby="tabbtn-bayesian" aria-hidden="true">
+    <h2 class="panel-heading">Update my expectations with real data <button class="info-btn" data-info="bayesian" aria-label="How this works">?</button></h2>
+    <p class="panel-sub">Starts from a guess about your typical performance, then updates that guess using your actual grades, semester by semester, the way your own expectations naturally would.</p>
+    <div class="info-panel" id="info-bayesian" hidden></div>
+    <div id="bayesian-body"></div>
+  </section>
+
+  <section class="tab-panel" id="panel-efficiency" role="tabpanel" aria-labelledby="tabbtn-efficiency" aria-hidden="true">
+    <h2 class="panel-heading">Aim smart, not just high <button class="info-btn" data-info="efficiency" aria-label="How this works">?</button></h2>
+    <p class="panel-sub">For a fixed number of classes left, see which nearby GPA targets take the least wasted effort to reach, and which ones would need more than they're really worth.</p>
+    <div class="info-panel" id="info-efficiency" hidden></div>
+    <div id="efficiency-body"></div>
+  </section>
+
+  <section class="tab-panel" id="panel-classification" role="tabpanel" aria-labelledby="tabbtn-classification" aria-hidden="true">
+    <h2 class="panel-heading">Where do I stand against named bands? <button class="info-btn" data-info="classification" aria-label="How this works">?</button></h2>
+    <p class="panel-sub">See exactly what's needed for classifications like First Class Honours, or whether you're already safely past the minimum to graduate. Bands are editable, not fixed facts: defaults are commonly-cited figures, so confirm against your own faculty handbook.</p>
+    <div class="info-panel" id="info-classification" hidden></div>
+    <div id="classification-body"></div>
+  </section>
+
+  <section class="tab-panel" id="panel-whatif" role="tabpanel" aria-labelledby="tabbtn-whatif" aria-hidden="true">
+    <h2 class="panel-heading">Try a hypothetical semester <button class="info-btn" data-info="whatif" aria-label="How this works">?</button></h2>
+    <p class="panel-sub">See what a pretend semester would do to your GPA: without touching your real, saved grades.</p>
+    <div class="info-panel" id="info-whatif" hidden></div>
+    <div id="whatif-body"></div>
+  </section>
+  <section class="tab-panel" id="panel-allocation" role="tabpanel" aria-labelledby="tabbtn-allocation" aria-hidden="true">
+    <h2 class="panel-heading">Was my path the only way? <button class="info-btn" data-info="allocation" aria-label="How this works">?</button></h2>
+    <p class="panel-sub">See how many other ways your semesters could have played out and still added up to the exact same overall grades and the exact same number of classes per semester.</p>
+    <div class="info-panel" id="info-allocation" hidden></div>
+    <div id="allocation-body"></div>
+  </section>
+
+  <section class="tab-panel" id="panel-policy" role="tabpanel" aria-labelledby="tabbtn-policy" aria-hidden="true">
+    <h2 class="panel-heading">My best plan, semester by semester <button class="info-btn" data-info="policy" aria-label="How this works">?</button></h2>
+    <p class="panel-sub">Not just the smartest choice for next semester: the best sequence of choices across every semester you have left, each one already accounting for what comes after it.</p>
+    <div class="info-panel" id="info-policy" hidden></div>
+    <div id="policy-body"></div>
+  </section>
+  <section class="tab-panel" id="panel-load-planner" role="tabpanel" aria-labelledby="tabbtn-load-planner" aria-hidden="true">
+    <h2 class="panel-heading">The easiest number of classes to take <button class="info-btn" data-info="load-planner" aria-label="How this works">?</button></h2>
+    <p class="panel-sub">See how the cheapest nearby GPA target and the most convenient one both shift as you change how many classes you're taking this semester.</p>
+    <div class="info-panel" id="info-load-planner" hidden></div>
+    <div id="load-planner-body"></div>
+  </section>
+
+  <section class="tab-panel" id="panel-glossary" role="tabpanel" aria-labelledby="tabbtn-glossary" aria-hidden="true">
+    <h2 class="panel-heading">Look up a word, or find the right tab <button class="info-btn" data-info="glossary" aria-label="How this works">?</button></h2>
+    <p class="panel-sub">Plain definitions for every term used elsewhere in this tool, what each tab actually does, the assumptions in force everywhere, and one fully worked example.</p>
+    <div class="info-panel" id="info-glossary" hidden></div>
+    <div id="glossary-body"></div>
+  </section>
+
+  <section class="tab-panel" id="panel-about" role="tabpanel" aria-labelledby="tabbtn-about" aria-hidden="true">
+    <h2 class="panel-heading">Who made this <button class="info-btn" data-info="about" aria-label="How this works">?</button></h2>
+    <p class="panel-sub">License and credit information for this project.</p>
+    <div class="info-panel" id="info-about" hidden></div>
+    <div id="about-body"></div>
+  </section>
+
+  <section class="tab-panel" id="panel-skilltree" role="tabpanel" aria-labelledby="tabbtn-skilltree" aria-hidden="true">
+    <h2 class="panel-heading">Skill tree</h2>
+    <p class="panel-sub">A map of what you'd need to learn, and in what order, to understand everything this tool does from first principles: not required reading, just a guide for anyone curious enough to go looking.</p>
+    <div id="skilltree-body"></div>
+  </section>
+
+</main>
+
+<div id="hover-tip" role="tooltip"></div>
+<div id="toast" role="status" aria-live="polite"></div>
+
+<script src="dass-core.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
