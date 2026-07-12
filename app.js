@@ -2540,7 +2540,7 @@
   };
 
   function citationBibtex() {
-    return `@software{lee${ABOUT_INFO.year}compass,\n  author = {Lee, Hao Rong Javier},\n  title = {${ABOUT_INFO.name}},\n  year = {${ABOUT_INFO.year}},\n  url = https://cepheux.github.io/COMPASS/\n}`;
+    return `@software{lee${ABOUT_INFO.year}compass,\n  author = {Lee, Hao Rong Javier},\n  title = {${ABOUT_INFO.name}},\n  year = {${ABOUT_INFO.year}},\n  url = {https://cepheux.github.io/COMPASS/\n}`;
   }
 
   function citationApa7() {
