@@ -1648,21 +1648,68 @@
     const selected = track[bayesianState.selectedIndex];
     const selColor = VIRIDIS[bayesianState.selectedIndex % VIRIDIS.length];
 
-    // Aleatoric vs epistemic: epistemic = belief variance (shrinks with data,
-    // collection helps here); aleatoric = obsVar (fixed -- no amount of data
-    // shrinks it, this is how inconsistent the student genuinely is).
+    // Aleatoric vs epistemic: aleatoric = obsVar (fixed: no amount of data
+    // shrinks it, this is how inconsistent the student genuinely is);
+    // epistemic = the remainder (shrinks with data, collection helps here).
+    // Bars are drawn at ABSOLUTE scale (relative to the largest predictive
+    // variance seen across any stage), not normalised to 100% width, so
+    // the shrinking TOTAL is visible directly, not just the ratio between
+    // the two parts, which a same-width-always bar would hide.
+    const maxPredictiveVar = Math.max(...track.map((t) => t.predictiveVariance), 1e-9);
     const uncertaintyRows = track
       .map((t, idx) => {
-        const epistemicVar = t.predictiveVariance - obsVar;
-        const epistemicPct = Math.max(0, Math.min(100, (epistemicVar / t.predictiveVariance) * 100));
+        const epistemicVar = Math.max(0, t.predictiveVariance - obsVar);
+        const aleatoricVar = Math.min(obsVar, t.predictiveVariance);
+        const epistemicPct = t.predictiveVariance > 1e-9 ? (epistemicVar / t.predictiveVariance) * 100 : 0;
         const aleatoricPct = 100 - epistemicPct;
-        return `<div class="mini-table">
-          <h5>${t.label}</h5>
-          <div class="uncertainty-bar"><div class="uncertainty-bar__epistemic" style="width:${epistemicPct}%"></div><div class="uncertainty-bar__aleatoric" style="width:${aleatoricPct}%"></div></div>
-          <div style="font-size:11px;color:var(--ink-soft)">${epistemicPct.toFixed(0)}% reducible (epistemic) · ${aleatoricPct.toFixed(0)}% irreducible (aleatoric)</div>
+        const barWidthPct = (t.predictiveVariance / maxPredictiveVar) * 100;
+        return `<div class="uncertainty-row">
+          <div class="uncertainty-row__label">${t.label}</div>
+          <div class="uncertainty-row__track">
+            <div class="uncertainty-bar" style="width:${barWidthPct}%">
+              <div class="uncertainty-bar__aleatoric" style="width:${aleatoricPct}%" title="Aleatoric (irreducible): ${aleatoricVar.toFixed(3)}"></div>
+              <div class="uncertainty-bar__epistemic" style="width:${epistemicPct}%" title="Epistemic (reducible): ${epistemicVar.toFixed(3)}"></div>
+            </div>
+          </div>
+          <div class="uncertainty-row__label-right">${epistemicPct.toFixed(0)}% epistemic, ${aleatoricPct.toFixed(0)}% aleatoric</div>
         </div>`;
       })
       .join('');
+
+    // The decomposition plot: the same two quantities, but as absolute
+    // values plotted across stages directly, specifically so the shrinking
+    // (purple) epistemic curve is visible on its own axis rather than only
+    // as a shifting proportion inside a fixed-width bar.
+    const epistemicSeries = track.map((t) => Math.max(0, t.predictiveVariance - obsVar));
+    const aleatoricSeries = track.map(() => obsVar);
+    const stageLabels = track.map((t) => t.label);
+    const decompChart = (() => {
+      const w = 900,
+        h = 200,
+        padL = 40,
+        padR = 20,
+        padT = 16,
+        padB = 34;
+      const innerW = w - padL - padR,
+        innerH = h - padT - padB;
+      const allVals = [...epistemicSeries, ...aleatoricSeries];
+      const maxV = Math.max(...allVals, 1e-9);
+      const n = track.length;
+      const xFor = (i) => padL + (n === 1 ? innerW / 2 : (i / (n - 1)) * innerW);
+      const yFor = (v) => padT + innerH - (v / maxV) * innerH;
+      function pathFor(series, color) {
+        const pts = series.map((v, i) => [xFor(i), yFor(v)]);
+        const d = pts.map((p, i) => `${i === 0 ? 'M' : 'L'}${p[0].toFixed(1)},${p[1].toFixed(1)}`).join(' ');
+        const dots = pts.map((p) => `<circle cx="${p[0].toFixed(1)}" cy="${p[1].toFixed(1)}" r="3" fill="${color}" />`).join('');
+        return `<path d="${d}" fill="none" stroke="${color}" stroke-width="2.5" />${dots}`;
+      }
+      const axisLabels = stageLabels.map((l, i) => `<text x="${xFor(i).toFixed(1)}" y="${h - 10}" text-anchor="middle" font-size="10" fill="var(--ink-faint)">${l}</text>`).join('');
+      return `<svg viewBox="0 0 ${w} ${h}" style="width:100%;height:${h}px;display:block">
+        ${pathFor(aleatoricSeries, '#d9581a')}
+        ${pathFor(epistemicSeries, '#6552a8')}
+        ${axisLabels}
+      </svg>`;
+    })();
 
     const aheadResult = BayesianTrack.predictAhead(selected.pmf, bayesianState.predictAheadK);
     const aheadCI = [aheadResult.mean - 1.959964 * aheadResult.sd, aheadResult.mean + 1.959964 * aheadResult.sd];
@@ -1697,12 +1744,16 @@
       </div>
 
       <h3 style="margin-top:20px">Does collecting more data actually help?</h3>
-      <p class="panel-sub">Predictive variance splits into two parts: epistemic (uncertainty about your true ability: shrinks as more semesters arrive) and aleatoric (how much an individual grade wobbles even given perfect knowledge of your ability: fixed, set by "observation noise" above). If epistemic dominates, more data genuinely sharpens the prediction. If aleatoric dominates, the student is just inherently inconsistent, and no amount of past data will narrow things much further.</p>
+      <p class="panel-sub">Predictive variance splits into two parts: epistemic (uncertainty about your true ability: shrinks as more semesters arrive) and aleatoric (how much an individual grade wobbles even given perfect knowledge of your ability: fixed, set by "observation noise" above). If epistemic dominates, more data genuinely sharpens the prediction. If aleatoric dominates, the student is just inherently inconsistent, and no amount of past data will narrow things much further. When you eyeball the bars below, aleatoric will usually look like it dominates each one; that's expected; what actually matters is not the split within one bar but how much SHORTER the whole bar gets from one stage to the next, since bar length here is total uncertainty, not a fixed 100%.</p>
       <div class="uncertainty-legend">
         <span><span class="curve-legend__swatch" style="background:var(--tide);display:inline-block"></span> epistemic (reducible)</span>
         <span><span class="curve-legend__swatch" style="background:var(--coral);display:inline-block"></span> aleatoric (irreducible)</span>
       </div>
-      <div class="mini-table-grid">${uncertaintyRows}</div>
+      <div class="uncertainty-rows">${uncertaintyRows}</div>
+
+      <h4 style="margin-top:18px">The same two numbers, decomposed across semesters</h4>
+      <p class="panel-sub">Aleatoric (orange) stays flat by construction: it's a fixed setting, not something the data can move. Watch the epistemic curve (purple) instead: if it's visibly dropping, more semesters really are sharpening the prediction; if it's already flat, tracking further isn't going to help much more.</p>
+      <div class="chart-card">${decompChart}</div>
 
       <h3 style="margin-top:20px">Predict several future subjects jointly</h3>
       <p class="panel-sub">Not just "the next single subject": the combined distribution over several future subjects at once (e.g. "given everything through Y3S2, what's the joint outcome for Y4S1 and Y4S2 combined"), built from the <strong>selected</strong> stage below by convolving its per-subject curve with itself.</p>
@@ -2661,104 +2712,136 @@
     T7: "The Policy tab's multi-semester planning is a direct application of Markov Decision Processes, built on optimisation and decision theory.",
   };
 
-  const SKILL_TREE_DIAGRAM = `flowchart TD
-    subgraph SEC["SECONDARY SCHOOL"]
-        Algebra["Algebra"]
-        BasicProb["Basic Probability"]
-        BasicStats["Basic Statistics"]
-        SetsFunctions["Sets & Functions"]
-    end
+  const SKILL_TREE_DIAGRAM_SECONDARY = `flowchart TD
+    Algebra["Algebra"]
+    BasicProb["Basic Probability"]
+    BasicStats["Basic Statistics"]
+    SetsFunctions["Sets & Functions"]
 
-    subgraph TERT["TERTIARY / UNDERGRADUATE"]
-        Combinatorics["Combinatorics"]
-        LinearAlgebra["Linear Algebra"]
-        Calculus["Calculus"]
-        ProbTheory["Probability Theory"]
-        FreqStats["Frequentist Statistics"]
-        ParamEst["Parameter Estimation"]
-        UtilityTheory["Utility Theory"]
-        DiscreteMath["Discrete Math"]
-        Algorithms["Algorithms"]
-        AbstractAlgebra["Abstract Algebra"]
-    end
+    Algebra -.->|"no strict order between these four;\na reasonable reading order"| BasicProb
+    BasicProb -.-> BasicStats
+    BasicStats -.-> SetsFunctions`;
 
-    subgraph POST["POSTGRADUATE"]
-        BayesianStats["Bayesian Statistics"]
-        InfoTheory["Information Theory"]
-        MarkovChains["Markov Chains"]
-        OptimTheory["Optimization Theory"]
-        DecisionTheory["Decision Theory"]
-        RiskMeasures["Coherent Risk Measures"]
-        MDP["Markov Decision Processes"]
-        AlgStats["Algebraic Statistics"]
-        CombStochastic["Combinatorial Stochastic Processes"]
-    end
+  const SKILL_TREE_DIAGRAM_TERTIARY = `flowchart TD
+    Algebra_stub["Algebra (secondary)"]:::stub
+    BasicProb_stub["Basic Probability (secondary)"]:::stub
+    BasicStats_stub["Basic Statistics (secondary)"]:::stub
+    SetsFunctions_stub["Sets & Functions (secondary)"]:::stub
 
-    subgraph TOOL["THIS TOOL"]
-        T1["Grades & Reachability tabs"]
-        T2["Module Load / Confidence"]
-        T3["Risk tab"]
-        T4["Entropy tab"]
-        T5["Bayesian tab"]
-        T6["Allocation Space tab"]
-        T7["Policy tab"]
-    end
+    Combinatorics["Combinatorics"]
+    LinearAlgebra["Linear Algebra"]
+    Calculus["Calculus"]
+    ProbTheory["Probability Theory"]
+    FreqStats["Frequentist Statistics"]
+    ParamEst["Parameter Estimation"]
+    UtilityTheory["Utility Theory"]
+    DiscreteMath["Discrete Math"]
+    Algorithms["Algorithms"]
+    AbstractAlgebra["Abstract Algebra"]
 
-    Algebra --> Combinatorics
-    BasicProb --> Combinatorics
-    Algebra --> LinearAlgebra
-    Algebra --> Calculus
-    BasicProb --> ProbTheory
+    Algebra_stub --> Combinatorics
+    BasicProb_stub --> Combinatorics
+    Algebra_stub --> LinearAlgebra
+    Algebra_stub --> Calculus
+    BasicProb_stub --> ProbTheory
+    Algebra_stub --> UtilityTheory
+    SetsFunctions_stub --> DiscreteMath
+    BasicStats_stub --> FreqStats
+
     Combinatorics --> ProbTheory
     ProbTheory --> FreqStats
     FreqStats --> ParamEst
-    Algebra --> UtilityTheory
     Calculus --> UtilityTheory
-    SetsFunctions --> DiscreteMath
     DiscreteMath --> Algorithms
     DiscreteMath --> AbstractAlgebra
-    BasicStats --> FreqStats
 
-    FreqStats --> BayesianStats
-    ParamEst --> BayesianStats
-    ProbTheory --> InfoTheory
-    ProbTheory --> MarkovChains
-    LinearAlgebra --> MarkovChains
-    Calculus --> OptimTheory
-    Algorithms --> OptimTheory
-    UtilityTheory --> DecisionTheory
-    ProbTheory --> DecisionTheory
+    classDef stub stroke-dasharray: 4 3,fill:#f7f8fa,color:#8892a6`;
+
+  const SKILL_TREE_DIAGRAM_POSTGRAD = `flowchart TD
+    FreqStats_stub["Frequentist Statistics (tertiary)"]:::stub
+    ParamEst_stub["Parameter Estimation (tertiary)"]:::stub
+    ProbTheory_stub["Probability Theory (tertiary)"]:::stub
+    LinearAlgebra_stub["Linear Algebra (tertiary)"]:::stub
+    Calculus_stub["Calculus (tertiary)"]:::stub
+    Algorithms_stub["Algorithms (tertiary)"]:::stub
+    UtilityTheory_stub["Utility Theory (tertiary)"]:::stub
+    AbstractAlgebra_stub["Abstract Algebra (tertiary)"]:::stub
+    Combinatorics_stub["Combinatorics (tertiary)"]:::stub
+
+    BayesianStats["Bayesian Statistics"]
+    InfoTheory["Information Theory"]
+    MarkovChains["Markov Chains"]
+    OptimTheory["Optimization Theory"]
+    DecisionTheory["Decision Theory"]
+    RiskMeasures["Coherent Risk Measures"]
+    MDP["Markov Decision Processes"]
+    AlgStats["Algebraic Statistics"]
+    CombStochastic["Combinatorial Stochastic Processes"]
+
+    FreqStats_stub --> BayesianStats
+    ParamEst_stub --> BayesianStats
+    ProbTheory_stub --> InfoTheory
+    ProbTheory_stub --> MarkovChains
+    LinearAlgebra_stub --> MarkovChains
+    Calculus_stub --> OptimTheory
+    Algorithms_stub --> OptimTheory
+    UtilityTheory_stub --> DecisionTheory
+    ProbTheory_stub --> DecisionTheory
+    FreqStats_stub --> AlgStats
+    AbstractAlgebra_stub --> AlgStats
+    Combinatorics_stub --> CombStochastic
+
     DecisionTheory --> RiskMeasures
     OptimTheory --> RiskMeasures
     MarkovChains --> MDP
     OptimTheory --> MDP
     DecisionTheory --> MDP
-    FreqStats --> AlgStats
-    AbstractAlgebra --> AlgStats
-    Combinatorics --> CombStochastic
     MarkovChains --> CombStochastic
 
-    Combinatorics -.-> T1
-    Algebra -.-> T1
-    ProbTheory -.-> T2
-    FreqStats -.-> T2
-    RiskMeasures -.-> T3
-    InfoTheory -.-> T4
-    BayesianStats -.-> T5
-    AlgStats -.-> T6
-    CombStochastic -.-> T6
-    MDP -.-> T7
+    classDef stub stroke-dasharray: 4 3,fill:#f7f8fa,color:#8892a6`;
 
-    style SEC stroke-dasharray: 5 5,stroke:#8099a2,fill:none
-    style TERT stroke-dasharray: 5 5,stroke:#8099a2,fill:none
-    style POST stroke-dasharray: 5 5,stroke:#8099a2,fill:none
-    style TOOL stroke:#1d7a8c,fill:none`;
+  const SKILL_TREE_DIAGRAM_TOOL = `flowchart TD
+    Algebra_stub["Algebra (secondary)"]:::stub
+    Combinatorics_stub["Combinatorics (tertiary)"]:::stub
+    ProbTheory_stub["Probability Theory (tertiary)"]:::stub
+    FreqStats_stub["Frequentist Statistics (tertiary)"]:::stub
+    RiskMeasures_stub["Coherent Risk Measures (postgraduate)"]:::stub
+    InfoTheory_stub["Information Theory (postgraduate)"]:::stub
+    BayesianStats_stub["Bayesian Statistics (postgraduate)"]:::stub
+    AlgStats_stub["Algebraic Statistics (postgraduate)"]:::stub
+    CombStochastic_stub["Combinatorial Stochastic Processes (postgraduate)"]:::stub
+    MDP_stub["Markov Decision Processes (postgraduate)"]:::stub
+
+    T1["Grades & Reachability tabs"]
+    T2["Module Load / Confidence"]
+    T3["Risk tab"]
+    T4["Entropy tab"]
+    T5["Bayesian tab"]
+    T6["Allocation Space tab"]
+    T7["Policy tab"]
+
+    Algebra_stub --> T1
+    Combinatorics_stub --> T1
+    ProbTheory_stub --> T2
+    FreqStats_stub --> T2
+    RiskMeasures_stub --> T3
+    InfoTheory_stub --> T4
+    BayesianStats_stub --> T5
+    AlgStats_stub --> T6
+    CombStochastic_stub --> T6
+    MDP_stub --> T7
+
+    classDef stub stroke-dasharray: 4 3,fill:#f7f8fa,color:#8892a6`;
 
   function wireSkillTreeHover(container) {
     const tip = document.getElementById('hover-tip');
     container.querySelectorAll('.node').forEach((nodeEl) => {
       const match = nodeEl.id.match(/^.*-flowchart-(.+)-\d+$/);
-      const key = match ? match[1] : null;
+      // Stub nodes (e.g. "Algebra_stub") represent the exact same concept
+      // as the real node elsewhere; strip the suffix so hovering either
+      // one shows the identical explanation rather than nothing.
+      const rawKey = match ? match[1] : null;
+      const key = rawKey ? rawKey.replace(/_stub$/, '') : null;
       const text = key ? SKILL_EXPLANATIONS[key] : null;
       if (!text) return;
       nodeEl.style.cursor = 'help';
@@ -2777,27 +2860,43 @@
     });
   }
 
-  async function renderSkillTree() {
-    const body = document.getElementById('skilltree-body');
-    body.innerHTML = `
-      <div class="answer-card">
-        <div class="answer-card__detail">
-          <strong>What this page is for:</strong> everything else in this tool is built to be usable without any of the concepts mapped out below: you never need to know what "Bayesian" or "algebraic statistics" means to read your GPA or plan your next semester. This page is for the minority of people who open a tab, wonder "wait, how does this actually work underneath," and want a direction to go looking. It's a map of prerequisites, not a requirement: everyone starts somewhere different, and the dotted boundaries below (secondary school, tertiary/undergraduate, postgraduate) are there so you can find roughly where you already stand and see what the next honest step upward would be: regardless of your age, and regardless of whether "next step" means a class you take or just a term you look up on a slow afternoon.
-        </div>
-      </div>
-      <p class="panel-sub" style="margin-top:14px">Read it top to bottom: each box needs the boxes above it that point into it. The bottom row shows which tab in this tool each concept actually shows up in. Hover any box for a one-line explanation. Some boxes (Frequentist Statistics, Parameter Estimation, Abstract Algebra) don't correspond to any single tab directly: they're included because you genuinely need them to get from one real concept to the next; skipping them would leave a gap in the path, not just a name.</p>
-      <div class="info-diagram-wrap" style="overflow-x:auto">
-        <div class="mermaid-target" id="skilltree-diagram">Loading diagram…</div>
-      </div>
-    `;
-    const target = document.getElementById('skilltree-diagram');
+  async function renderSkillTreeDiagramInto(targetId, definition) {
+    const target = document.getElementById(targetId);
     try {
-      const { svg } = await window.mermaid.render('skilltree-svg-' + Date.now(), SKILL_TREE_DIAGRAM);
+      const { svg } = await window.mermaid.render(targetId + '-svg-' + Date.now() + '-' + Math.floor(Math.random() * 1e6), definition);
       target.innerHTML = svg;
       wireSkillTreeHover(target);
     } catch (e) {
       target.innerHTML = '<p style="color:var(--ink-faint);font-size:12px">(diagram unavailable)</p>';
     }
+  }
+
+  async function renderSkillTree() {
+    const body = document.getElementById('skilltree-body');
+    body.innerHTML = `
+      <div class="answer-card">
+        <div class="answer-card__detail">
+          <strong>What this page is for:</strong> everything else in this tool is built to be usable without any of the concepts mapped out below: you never need to know what "Bayesian" or "algebraic statistics" means to read your GPA or plan your next semester. This page is for the minority of people who open a tab, wonder "wait, how does this actually work underneath," and want a direction to go looking. It's a map of prerequisites, not a requirement: everyone starts somewhere different, and the four diagrams below (secondary school, tertiary/undergraduate, postgraduate, and this tool) are there so you can find roughly where you already stand and see what the next honest step upward would be: regardless of your age, and regardless of whether "next step" means a class you take or just a term you look up on a slow afternoon.
+        </div>
+      </div>
+      <p class="panel-sub" style="margin-top:14px">Four separate diagrams, one per level, each flowing top to bottom on its own. Dashed boxes at the top of a diagram are concepts explained fully in the diagram above; they're shown again here, lightly, only as the entry point into this level. Hover any box for a one-line explanation, real or dashed. Some boxes (Frequentist Statistics, Parameter Estimation, Abstract Algebra) don't correspond to any single tab directly: they're included because you genuinely need them to get from one real concept to the next; skipping them would leave a gap in the path, not just a name.</p>
+
+      <h3 style="margin-top:20px">Secondary school</h3>
+      <div class="info-diagram-wrap" style="overflow-x:auto"><div class="mermaid-target" id="skilltree-diagram-sec">Loading diagram…</div></div>
+
+      <h3 style="margin-top:20px">Tertiary / undergraduate</h3>
+      <div class="info-diagram-wrap" style="overflow-x:auto"><div class="mermaid-target" id="skilltree-diagram-tert">Loading diagram…</div></div>
+
+      <h3 style="margin-top:20px">Postgraduate</h3>
+      <div class="info-diagram-wrap" style="overflow-x:auto"><div class="mermaid-target" id="skilltree-diagram-post">Loading diagram…</div></div>
+
+      <h3 style="margin-top:20px">This tool</h3>
+      <div class="info-diagram-wrap" style="overflow-x:auto"><div class="mermaid-target" id="skilltree-diagram-tool">Loading diagram…</div></div>
+    `;
+    await renderSkillTreeDiagramInto('skilltree-diagram-sec', SKILL_TREE_DIAGRAM_SECONDARY);
+    await renderSkillTreeDiagramInto('skilltree-diagram-tert', SKILL_TREE_DIAGRAM_TERTIARY);
+    await renderSkillTreeDiagramInto('skilltree-diagram-post', SKILL_TREE_DIAGRAM_POSTGRAD);
+    await renderSkillTreeDiagramInto('skilltree-diagram-tool', SKILL_TREE_DIAGRAM_TOOL);
   }
 
   // ------------------------------------------------------------------
@@ -2810,7 +2909,7 @@
   const summaryState = {
     a: { gpa: null, maxN: 50 },
     b: { minN: 1, maxN: 12, remainingSemesters: 2, showAdvanced: false, convenientCostFilter: 0.01, cheapestCostFilter: 0.001 },
-    c: { n1: 4, n2: 8, n3: 12, targetGpa: null },
+    c: { n1: 4, n2: 8, n3: 12, targetGpa: null, centerLabel: null, tierSpread: null },
     d: { fixedN: 8 },
   };
 
@@ -2858,10 +2957,12 @@
       bestCombined = Infinity,
       anyFeasible = false;
     const cellsHtml = [];
+    const comboCellsHtml = [];
     for (let n = 1; n <= p.maxN; n++) {
       const r = Reachability.solve(n, target, N0, S0, gradeSystem);
       if (!r.feasible) {
         cellsHtml.push(`<td class="reach-cell is-impossible" title="n=${n}: not possible">${n}</td>`);
+        comboCellsHtml.push(`<td class="reach-cell is-impossible" title="n=${n}: not possible">-</td>`);
         continue;
       }
       anyFeasible = true;
@@ -2872,7 +2973,9 @@
       }
       const caps = [0.15, 0.075];
       const style = `background:${heatmapColor(combined, caps[0], caps[1])}`;
+      const comboText = r.guaranteed ? 'done' : r.combo;
       cellsHtml.push(`<td class="reach-cell" style="${style}" title="n=${n}: ${r.guaranteed ? 'already guaranteed' : r.combo}">${n}</td>`);
+      comboCellsHtml.push(`<td class="reach-cell" style="${style}" title="n=${n}: ${r.guaranteed ? 'already guaranteed' : r.combo}">${comboText}</td>`);
     }
 
     let step1Para = '';
@@ -2921,7 +3024,7 @@
             <input id="sum-a-maxn" type="number" min="1" step="1" value="${p.maxN}" /></div></div>
         </div>
       </div>
-      <div class="summary-strip"><table class="dgrid" style="width:auto"><tbody><tr>${cellsHtml.join('')}</tr></tbody></table></div>
+      <div class="summary-strip"><table class="dgrid" style="width:auto"><tbody><tr><th style="position:sticky;left:0">n</th>${cellsHtml.join('')}</tr><tr><th style="position:sticky;left:0">grades</th>${comboCellsHtml.join('')}</tr></tbody></table></div>
       ${step1Para}
       ${step2Para}
       ${step3Para}
@@ -2981,7 +3084,7 @@
         if (eff.convenientTarget !== null && eff.convenientTarget >= anchor && eff.convenientCost <= p.convenientCostFilter) {
           convenientRows.push({ n, target: eff.convenientTarget, cost: eff.convenientCost, combo: eff.convenientCombo });
         }
-        if (eff.cheapestTarget !== null && eff.cheapestTarget <= anchor && eff.cheapestCost <= p.cheapestCostFilter) {
+        if (eff.cheapestTarget !== null && eff.cheapestTarget <= anchor && eff.cheapestCost <= p.cheapestCostFilter && eff.cheapestCombo !== 'Already achieved') {
           cheapestRows.push({ n, target: eff.cheapestTarget, cost: eff.cheapestCost, combo: eff.cheapestCombo });
         }
       }
@@ -3025,8 +3128,6 @@
       const targetWalk = computePolicyWalk(N0, S0, p.remainingSemesters, choiceSet, probModel, (gpa) => (gpa >= anchor ? 1 : 0));
       const targetSeq = targetWalk.steps.map((s) => s.choice).join(' \u2192 ');
       const step4Para = `<p>Optimal expected value of P(final GPA \u2265 ${fmt2(anchor)}): ${pct(targetWalk.result.expectedUtility)}, following ${targetSeq}.</p>`;
-
-      const step5Para = `<p>More can be done here when two subject counts are compared directly against each other, side by side. That comparison lives on the Plan compare tab.</p>`;
 
       resultsHtml = `
         <p>Assuming you expect to do better than your current GPA, meaning you're putting in more effort than the status quo, here is the subject count and target that stays most convenient while keeping cost low:</p>
@@ -3094,10 +3195,13 @@
   function renderSummarySectionC(N0, S0, curGpa) {
     const el = document.getElementById('summary-section-c');
     const p = summaryState.c;
+    if (p.centerLabel === null) p.centerLabel = beliefs.centerLabel;
+    if (p.tierSpread === null) p.tierSpread = beliefs.tierSpread;
     const target = p.targetGpa !== null ? p.targetGpa : curGpa !== null ? curGpa : reachState.anchor;
     const ns = [p.n1, p.n2, p.n3];
     const an = new Analysis(gradeSystem);
-    const probModel = new ProbabilityModel(gradeSystem, gradeSystem.scoreOf(beliefs.centerLabel), beliefsRawSpread(gradeSystem));
+    const localRawSpread = p.tierSpread * gradeSystem.latticeStep();
+    const probModel = new ProbabilityModel(gradeSystem, gradeSystem.scoreOf(p.centerLabel), localRawSpread);
 
     const rows = ns.map((n) => {
       const r = Reachability.solve(n, target, N0, S0, gradeSystem);
@@ -3106,7 +3210,7 @@
       return { n, feasible: r.feasible, guaranteed: r.guaranteed, combo: r.combo, conf, consequence };
     });
 
-    const step1Table = `<div class="grid-wrap"><table class="dgrid"><thead><tr><th>Plan</th><th>Even possible?</th><th>Grades needed</th><th>Real-world odds</th><th>GPA if it goes badly</th></tr></thead><tbody>${rows
+    const step1Table = `<div class="grid-wrap"><table class="dgrid"><thead><tr><th title="Which plan (subject count) this row describes">Plan</th><th title="Is this target mathematically reachable at all with this many subjects?">Even possible?</th><th title="The minimal grade combination that reaches this target">Grades needed</th><th title="Your probability of clearing this target, given the expected grade curve set above">Real-world odds</th><th title="If this plan goes badly: the realistic worst case, averaged over your worst 10% of outcomes">GPA if it goes badly</th></tr></thead><tbody>${rows
       .map((r) => `<tr><th>n=${r.n}</th><td>${r.guaranteed ? 'Already achieved' : r.feasible ? 'Yes' : 'No'}</td><td>${r.guaranteed ? 'Already achieved' : r.feasible ? r.combo : '-'}</td><td>${pct(r.conf)}</td><td>${fmt5(r.consequence)}</td></tr>`)
       .join('')}</tbody></table></div>`;
 
@@ -3148,6 +3252,19 @@
           <div class="control-fields"><div class="control-field"><label for="sum-c-target">leave blank to use your current GPA</label>
             <input id="sum-c-target" type="number" step="0.01" placeholder="blank" value="${p.targetGpa !== null ? p.targetGpa : ''}" /></div></div>
         </div>
+        <div class="control-group"><h3>Expected grade curve</h3>
+          <div class="control-fields">
+            <div class="control-field"><label for="sum-c-curve-label">Typical grade</label>
+              <select id="sum-c-curve-label">
+                ${gradeSystem
+                  .canonicalEntries()
+                  .map((e) => `<option value="${e.label}" ${e.label === p.centerLabel ? 'selected' : ''}>${e.label}</option>`)
+                  .join('')}
+              </select></div>
+            <div class="control-field"><label for="sum-c-curve-spread">Spread (tiers)</label>
+              <input id="sum-c-curve-spread" type="number" step="0.1" min="0.1" value="${p.tierSpread}" /></div>
+          </div>
+        </div>
       </div>
       ${step1Table}
       ${step1Para}
@@ -3169,6 +3286,14 @@
     });
     document.getElementById('sum-c-target').addEventListener('change', (e) => {
       summaryState.c.targetGpa = e.target.value === '' ? null : Number(e.target.value);
+      renderSummarySectionC(N0, S0, curGpa);
+    });
+    document.getElementById('sum-c-curve-label').addEventListener('change', (e) => {
+      summaryState.c.centerLabel = e.target.value;
+      renderSummarySectionC(N0, S0, curGpa);
+    });
+    document.getElementById('sum-c-curve-spread').addEventListener('change', (e) => {
+      summaryState.c.tierSpread = Math.max(0.1, Number(e.target.value));
       renderSummarySectionC(N0, S0, curGpa);
     });
   }
@@ -3231,19 +3356,15 @@
     let para;
     if (curGpa !== null && curGpa >= 4.495) {
       const probModel = new ProbabilityModel(gradeSystem, gradeSystem.scoreOf(beliefs.centerLabel), beliefsRawSpread(gradeSystem));
-      let foundN = null;
-      for (let n = 1; n <= 30; n++) {
+      const maxNChecked = 30;
+      let answerN = 0;
+      for (let n = 1; n <= maxNChecked; n++) {
         const h = probModel.entropy(n);
-        if (Math.pow(2, h) > 3) {
-          foundN = n;
-          break;
+        if (h <= 3) {
+          answerN = n; // keep advancing; take the LARGEST n satisfying the condition
         }
       }
-      const answerN = foundN === null ? null : Math.max(0, foundN - 1);
-      para =
-        answerN === null
-          ? `<p>Within the range checked, your realistic futures never exceed 3 effectively-distinct outcomes, so this specific limit doesn't apply to you right now.</p>`
-          : `<p>Given your expected grade curve, you could take up to <strong>${answerN}</strong> more class${answerN === 1 ? '' : 'es'} before your realistic range of futures would start including outcomes below a B+, based on how many genuinely distinct outcomes remain open at each subject count.</p>`;
+      para = `<p>Given your expected grade curve, you could take up to <strong>${answerN}</strong>$ more class${answerN === 1 ? '' : 'es'} (out of ${maxNChecked} checked) before your realistic range of futures would start including outcomes below a B+, based on how many genuinely distinct outcomes remain open at each subject count.</p>`;
     } else {
       para = `<p>Whether this is worth worrying about depends on how willing you are to risk a lower grade for a chance at a better one. This summary page isn't able to generalise a clean answer for you at this point.</p>`;
     }
@@ -3294,9 +3415,9 @@
       const firstReducible = Math.max(0, dataStages[0].predictiveVariance - obsVar);
       const lastReducible = Math.max(0, dataStages[dataStages.length - 1].predictiveVariance - obsVar);
       if (firstReducible > 1e-9 && lastReducible < firstReducible * 0.7) {
-        step2Para = `<p>As your semesters have gone by, more data has genuinely sharpened the prediction about your future grades: the part of the uncertainty that comes from not yet knowing your true ability has shrunk noticeably.</p>`;
+        step2Para = `<p>As your semesters have gone by, more data has genuinely sharpened the prediction about your future grades: the part of the uncertainty that comes from not yet knowing your true ability has shrunk noticeably, from about ${firstReducible.toFixed(3)} to about ${lastReducible.toFixed(3)}. On the Bayesian tab's decomposition chart, that's a visibly falling purple curve.</p>`;
       } else {
-        step2Para = `<p>Tracking more semesters hasn't sharpened predictions about you very much: most of your remaining uncertainty looks like genuine, ordinary variation from one grade to the next, not something more data would resolve.</p>`;
+        step2Para = `<p>Tracking more semesters hasn't sharpened predictions about you very much: most of your remaining uncertainty looks like genuine, ordinary variation from one grade to the next, not something more data would resolve. On the Bayesian tab's decomposition chart, that shows up as a purple curve that's already fairly flat.</p>`;
       }
     }
 

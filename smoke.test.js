@@ -94,7 +94,8 @@ async function main() {
   // Section A
   const secA = document.getElementById('summary-section-a');
   check('section A hints Reachability, Required GPA, What if, Module load', ['Reachability', 'Required GPA', 'What if', 'Module load'].every((t) => [...secA.querySelectorAll('.tab-hint-oval')].some((o) => o.textContent === t)));
-  check('section A renders a reachability strip', secA.querySelectorAll('.reach-cell').length === 50, secA.querySelectorAll('.reach-cell').length);
+  check('section A renders a two-row reachability strip (n row + combo row)', secA.querySelectorAll('.reach-cell').length === 100, secA.querySelectorAll('.reach-cell').length);
+  check('section A strip second row shows actual grade combinations, not just numbers', /[A-Z][+-]?,?\s*[A-Z]?/.test([...secA.querySelectorAll('.summary-strip tbody tr')][1].textContent));
   check('section A states a recommended n with the lowest combined score', /n = \d+/.test(secA.textContent));
   check('section A includes the required-GPA-style paragraph with cost and loss', secA.textContent.includes('cost') && secA.textContent.includes('loss'));
   const sumAGpa = document.getElementById('sum-a-gpa');
@@ -142,6 +143,7 @@ async function main() {
   check('section F hints Bayesian, Allocation', ['Bayesian', 'Allocation'].every((t) => [...secF.querySelectorAll('.tab-hint-oval')].some((o) => o.textContent === t)));
   check('section F states a confidence percentage about randomness', /\d+%/.test(secF.textContent) && (secF.textContent.includes('not random') || secF.textContent.includes('is random')));
   check('section F avoids the words epistemic/aleatoric per the no-jargon request', !secF.textContent.toLowerCase().includes('epistemic') && !secF.textContent.toLowerCase().includes('aleatoric'));
+  check('section F points back to the Bayesian tab\'s decomposition chart consistently', secF.textContent.includes('decomposition chart') && secF.textContent.includes('purple curve'));
 
   // --- Reachability: transposed axes + color legend + shared Beliefs ---
   goTo('reachability');
@@ -273,6 +275,22 @@ async function main() {
   // --- Bayesian: aleatoric/epistemic + predict ahead ---
   goTo('bayesian');
   check('bayesian renders an uncertainty decomposition per stage', document.querySelectorAll('.uncertainty-bar').length >= 2);
+  check('bayesian bars use absolute (not normalised-to-100%) scale, so total variance is visible', (() => {
+    const widths = [...document.querySelectorAll('.uncertainty-row .uncertainty-bar')].map((b) => parseFloat(b.style.width));
+    return widths.some((w) => w < 100); // at least one stage should be visibly shorter than the max
+  })());
+  check('bayesian shows aleatoric before epistemic within each bar (left to right)', (() => {
+    const firstBar = document.querySelector('.uncertainty-row .uncertainty-bar');
+    const children = [...firstBar.children];
+    return children[0].classList.contains('uncertainty-bar__aleatoric') && children[1].classList.contains('uncertainty-bar__epistemic');
+  })());
+  check('bayesian shows a percentage label per stage', document.querySelector('.uncertainty-row__label-right').textContent.includes('% epistemic'));
+  check('bayesian renders the new decomposition plot with two series', (() => {
+    const cards = [...document.querySelectorAll('#bayesian-body .chart-card')];
+    const decompCard = cards[cards.length - 1];
+    return decompCard.querySelectorAll('svg path').length === 2;
+  })());
+  check('bayesian explanation addresses eyeballing the bars, not just stating the split', document.getElementById('bayesian-body').textContent.includes('eyeball'));
   check('bayesian renders the predict-ahead answer card', !!document.querySelector('#bayesian-body .answer-card'));
   const aheadInput = document.getElementById('bay-ahead-k');
   setInput(aheadInput, 10);
@@ -465,8 +483,9 @@ async function main() {
   goTo('skilltree');
   check('skill tree states its intent at the top', document.getElementById('skilltree-body').textContent.includes('What this page is for'));
   check('skill tree mentions all three education tiers', ['secondary school', 'tertiary', 'postgraduate'].every((tier) => document.getElementById('skilltree-body').textContent.toLowerCase().includes(tier)));
-  check('skill tree has a diagram container that does not crash without mermaid available', !!document.getElementById('skilltree-diagram'));
+  check('skill tree renders 4 separate diagram containers (secondary, tertiary, postgrad, tool)', ['skilltree-diagram-sec', 'skilltree-diagram-tert', 'skilltree-diagram-post', 'skilltree-diagram-tool'].every((id) => !!document.getElementById(id)));
   check('skill tree explains the bridging concepts not directly used by any tab', document.getElementById('skilltree-body').textContent.includes('Frequentist Statistics'));
+  check('skill tree explains the dashed stub-node convention', document.getElementById('skilltree-body').textContent.includes('entry point'));
   check('skilltree tab has no info button (it IS the deep-dive content)', !document.querySelector('[data-info="skilltree"]'));
 
   console.log(`\n${pass} passed, ${fail} failed`);
