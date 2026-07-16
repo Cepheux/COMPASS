@@ -2,18 +2,16 @@
 
 **Computational Optimisation for Modular Planning using Academic State Space**
 
-COMPASS is a GPA planning tool built on a simple reframing. Instead of asking "What GPA
-will these grades give me?", we ask "Given where I am now, what futures are still possible,
-and what's the best way to get there? GPA is a single number computed from a discrete, path-dependent state, and once you treat it that way, a whole set of questions become answerable that a normal GPA calculator never surfaces: not just "what grade do I need," but how fragile that plan is, how it compares to realistic alternatives, what your own grade history says about your consistency, and what the best multi-semester plan actually looks like.
+COMPASS is a GPA planning tool built on a simple reframing: your GPA is not the thing to study, it's the shadow of something richer. It's a single number computed from a discrete, path-dependent state, and once you treat it that way, a whole set of questions become answerable that a normal GPA calculator never surfaces: not just "what grade do I need," but how fragile that plan is, how it compares to realistic alternatives, what your own grade history says about your consistency, and what the best multi-semester plan actually looks like.
 
-Nineteen tabs, one shared engine, zero build step. Open `index.html` in a browser and it runs.
+Twenty tabs, one shared engine, zero build step. Open `index.html` in a browser and it runs.
 
 
 ## Contents
 
 - [Quick start](#quick-start)
 - [What's inside](#whats-inside)
-- [The mathematics, briefly](#mathematics)
+- [The mathematics, briefly](#the-mathematics-briefly)
 - [Architecture](#architecture)
 - [Testing](#testing)
 - [Honest limitations](#honest-limitations)
@@ -28,15 +26,16 @@ No install, no build, no dependencies beyond a browser (an internet connection i
 open index.html
 ```
 
-Start on the **Transcript** tab. It's the only tab that assumes you haven't visited any other tab first, since every other tab reads from what you enter there. From there, the **Skill Tree** tab (last in the tab bar) is a good second stop if you're curious how deep the rabbit hole goes.
+Start on the **Transcript** tab. It's the only tab that assumes you haven't visited any other tab first, since every other tab reads from what you enter there. From there, the **Skill Tree** tab (last in the tab bar) is a good second stop if you're curious how deep the rabbit hole goes; every other tab works perfectly well without ever visiting it.
 
 ## What's inside
 
-Nineteen tabs, but really nine questions. The table below groups them by what they actually answer, in plain terms, before any statistics enter the picture.
+Twenty tabs, but really ten questions (nine analytical ones, plus a Summary that answers six of the most common ones directly). The table below groups them by what they actually answer, in plain terms, before any statistics enter the picture.
 
 | Tab | The question it answers |
 |---|---|
 | Transcript | Enter your grades here. Everything else is worked out from this one table. |
+| Summary | Six of the most common questions, answered directly, each pulling from a handful of other tabs. A generalisation, not a replacement for the tabs themselves. |
 | Reachability | What grades do I need, for every target and every number of classes left, all at once? |
 | Required GPA | Just tell me the number. One target, one class count, one answer. |
 | Module load | How many classes should I actually take this semester? |
@@ -58,21 +57,20 @@ Nineteen tabs, but really nine questions. The table below groups them by what th
 
 Every tab's "?" button opens a short, tiered explanation: a one-line answer to "why would I use this," a small diagram, and then progressively deeper sections (a plain-language idea, the statistics behind it, and a university-level view where one exists) that you open only if you want to. No tab requires having read another tab first, except Transcript, which everything else depends on directly.
 
-## Mathematics
+## The mathematics, briefly
 
-The three ideas worth knowing up front:
-
-**Rounding can be leveraged.** A displayed target like 4.75 does not mean 4.75. It means the range `[4.745, 4.755)`, since every value in that range rounds to the same displayed figure. Every "required average" computed anywhere in this tool is solved against the lower edge of that range (4.745), not the number you typed, since that's genuinely the least you need.
+The full derivations, with proofs, live in the accompanying technical report (see [Companion documents](#companion-documents)). The two ideas worth knowing up front:
 
 **Every grade is an integer in disguise.** Divide every grade's point value by the spacing between tiers (0.5 on the default scale) and every grade becomes a whole number. This is what makes the entire Reachability grid computable in constant time per cell rather than searched for.
 
-**Two-Tier Reducibility.** Any achievable total for `n` subjects can always be reached using at most two adjacent grade tiers, never a complicated mixture. The proof is three lines: let `a = floor(sigma/n)`, `y = sigma - a*n`, `x = n - y`. Then `a*x + (a+1)*y = sigma`, exactly, every time. This single result is what the entire reachability engine, used directly or indirectly by eleven of the nineteen tabs, is built on.
+**Two-Tier Reducibility.** Any achievable total for `n` subjects can always be reached using at most two adjacent grade tiers, never a complicated mixture. The proof is three lines: let `a = floor(sigma/n)`, `y = sigma - a*n`, `x = n - y`. Then `a*x + (a+1)*y = sigma`, exactly, every time. This single result is what the entire reachability engine, used directly or indirectly by twelve of the twenty tabs, is built on.
 
+**Rounding can be leveraged.** A displayed target like 4.75 does not mean 4.75. It means the range `[4.745, 4.755)`, since every value in that range rounds to the same displayed figure. Every "required average" computed anywhere in this tool is solved against the lower edge of that range (4.745), not the number you typed, since that's genuinely the least you need.
 
 ## Architecture
 
 ```
-index.html       shell, tab bar, and the 19 tab panels
+index.html       shell, tab bar, and the 20 tab panels
 dass-core.js     the engine: GradeSystem, AcademicState, Reachability,
                  ProbabilityModel, BayesianTrack, Analysis
 app.js           the UI layer: per-tab state, rendering, and event wiring
@@ -84,6 +82,7 @@ The engine (`dass-core.js`) has no dependencies and no DOM access; it's plain, t
 
 The UI layer (`app.js`) is a single IIFE holding one state object per tab plus a handful of shared ones (`gradeSystem`, `state`, `beliefs`), and a dispatch table (`TAB_RENDERERS`) mapping each tab id to its render function. Every render function reads from the engine, never mutates it, and writes its output directly into that tab's `<div>`.
 
+For a complete, function-by-function map of both files (every global, every engine method, and an input-to-output sequence diagram for each tab), see `dass-diagrams.md` in [Companion documents](#companion-documents) below. Note that file was generated against an earlier build under the prior project name (DASS) and its line numbers will have drifted since; the architecture it describes is otherwise still current.
 
 ## Testing
 
@@ -96,7 +95,6 @@ Both require `jsdom` for the end-to-end suite only (`npm install jsdom`); the en
 
 
 ## Honest limitations
-
 
 - **Not a predictor of your actual future.** Every probability used anywhere in this tool comes from a curve you set yourself, not one fitted from your own transcript. Eight semesters is genuinely too little data to fit a distribution and present it with the authority of a large sample.
 - **No penalty structure.** Overload carries no modelled cost in time, stress, or opportunity.
@@ -119,7 +117,7 @@ Academic State Space [Computer software]. https://cepheux.github.io/COMPASS/
 
 ```bibtex
 @software{lee2026compass,
-  author = {Lee, Hao Rong Javier},
+  author = {Lee Hao Rong Javier},
   title  = {COMPASS: Computational Optimisation for Modular Planning using Academic State Space},
   year   = {2026},
   url    = {https://cepheux.github.io/COMPASS/}
@@ -129,5 +127,7 @@ Academic State Space [Computer software]. https://cepheux.github.io/COMPASS/
 ## License
 
 Licensed under the Apache License, Version 2.0. See `NOTICE` for the full attribution text.
+
+This project is provided free of charge and AS IS. The author assumes no liability for any damages, losses, or consequences resulting from its use. Use at your own risk.
 
 Copyright (c) 2026 Lee Hao Rong Javier. Developed and maintained by Lee Hao Rong Javier.

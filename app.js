@@ -63,6 +63,7 @@
 
   const TAB_DEFS = [
     { id: 'transcript', label: 'Transcript' },
+    { id: 'summary', label: 'Summary' },
     { id: 'reachability', label: 'Reachability' },
     { id: 'required-gpa', label: 'Required GPA' },
     { id: 'module-load', label: 'Module load' },
@@ -98,6 +99,15 @@
       secondary: "Your GPA is just a weighted average: multiply each grade's point value by how many times you got it, add those up, divide by your total subject count. This tab does exactly that arithmetic for you, live, so you never have to redo it by hand after adding one more class.",
       mathRequired: 'Nothing beyond arithmetic (multiplication, addition, division) is required to use this tab. The one structural idea worth knowing: every grade sits on an evenly-spaced number line (F, D, D+, C-, ... each exactly 0.5 apart on the default scale): that even spacing is what lets every other tab in this tool do exact, guaranteed-correct math instead of estimating.',
       university: 'Formally, a semester is a function from grades to counts, and your GPA is a ratio of two sums (total grade-points divided by total subjects) computed over that function: never stored as its own value, always recalculated. This distinction (GPA as a derived quantity, not a stored one) is what the rest of this tool is built on.',
+    },
+    summary: {
+      need: 'You want the answers to a few common questions right away, without visiting six or seven different tabs yourself to piece them together.',
+      diagram: `flowchart TD
+        Need["Need:\nquick answers,\nfew tabs"] --> Feat["Feature:\nsix common questions,\nanswered directly"]
+        Feat --> Tool["Tool:\npulls from the same\nengine every other tab uses"]`,
+      secondary: 'This page reads like a set of frequently asked questions, each with a real, computed answer rather than a generic one. Every answer is built from the exact same maths as the tab it draws from; nothing here is a separate, simplified estimate.',
+      mathRequired: "Nothing new: every number on this page is produced by calling the same reachability, risk, entropy, Bayesian, and allocation logic used elsewhere in this tool, just pre-selected and pre-summarised into a short paragraph instead of a full chart or grid.",
+      university: 'This tab is a pure synthesis layer: it holds no computation of its own beyond selection, filtering, and sorting of results already produced by the engine functions documented elsewhere. Treat any answer here as a starting point, not a replacement for the fuller tab it was drawn from, since a short summary necessarily leaves detail out.',
     },
     reachability: {
       need: "You want to know exactly what grades you'd need for every combination of 'how many classes are left' and 'what GPA am I aiming for': all at once, not one at a time.",
@@ -984,7 +994,6 @@
         <td>${r.guaranteed ? 'Already achieved' : r.feasible ? r.combo : '-'}</td>
         <td>${r.feasible && !r.guaranteed ? fmt5(r.cost) : '-'}</td>
         <td>${r.feasible ? fmt5(r.loss) : '-'}</td>
-        <td>${r.feasible ? r.margin : '-'}</td>
         <td>${risk.toFixed(3)}</td>
         <td>${pct(conf)}</td>
         <td>${fmt5(consequence)}</td>
@@ -1020,7 +1029,6 @@
             <th>Grades needed</th>
             <th title="Extra performance this plan uses on the new classes alone, beyond the bare minimum">Extra used (new classes)</th>
             <th title="Extra performance this plan uses across your whole transcript, beyond the bare minimum">Extra used (overall)</th>
-            <th title="How many of the plan's stronger grades could each individually drop one notch and still keep you at this target">Room for error</th>
             <th title="How many distinct grade combinations still reach this target: a higher number here means MORE fragile, fewer ways to succeed, not less">Fragility (higher = more fragile)</th>
             <th title="Your realistic odds of actually clearing this target, based on your expected performance">Real-world odds</th>
             <th title="If this plan misses, your realistic worst case: the average GPA across your worst 10% of outcomes">If it goes badly</th>
@@ -1756,6 +1764,28 @@
   const efficiencyState = { n: 8, minOffset: -0.3, maxOffset: 0.3, interval: 0.02 };
 
   /** Pure computation (no HTML): cheapest and most-convenient nearby target for a given n. Reused by the Efficiency tab and the Load Planner tab. */
+  /**
+   * Shifts a hypothetical (extraN subjects, extraS combined score) by k
+   * lattice steps at the TOTAL level (not per-subject), the corrected
+   * total-shift formula used by the What If tab. Shared here so the
+   * Summary tab can simulate the same "+1/-1 grade jump" idea without
+   * duplicating the logic. Returns { k, possible, finalGPA, cert, loss }.
+   */
+  function computeGradeJump(k, extraN, extraS, N0, S0, gradeSystem) {
+    if (extraN === 0) return { k, possible: false };
+    const step = gradeSystem.latticeStep();
+    const maxTotal = extraN * gradeSystem.maxScore();
+    const minTotal = extraN * gradeSystem.minScore();
+    const shiftedExtraS = extraS + k * step;
+    if (shiftedExtraS < minTotal - 1e-9 || shiftedExtraS > maxTotal + 1e-9) {
+      return { k, possible: false };
+    }
+    const shiftedFinal = (S0 + shiftedExtraS) / (N0 + extraN);
+    const shiftedCert = Math.round(shiftedFinal * 100) / 100;
+    const shiftedLoss = shiftedFinal - (shiftedCert - 0.005);
+    return { k, possible: true, finalGPA: shiftedFinal, cert: shiftedCert, loss: shiftedLoss };
+  }
+
   function computeEfficiencyForN(n, N0, S0) {
     const anchor = reachState.anchor;
     const steps = Math.round((efficiencyState.maxOffset - efficiencyState.minOffset) / efficiencyState.interval);
@@ -1982,17 +2012,7 @@
     for (let k = -whatIfState.jumpsBackward; k <= whatIfState.jumpsForward; k++) jumpRange.push(k);
 
     const jumpRows = jumpRange
-      .map((k) => {
-        if (extraN === 0) return { k, possible: false };
-        const shiftedExtraS = extraS + k * step;
-        if (shiftedExtraS < minTotal - 1e-9 || shiftedExtraS > maxTotal + 1e-9) {
-          return { k, possible: false };
-        }
-        const shiftedFinal = (S0 + shiftedExtraS) / (N0 + extraN);
-        const shiftedCert = Math.round(shiftedFinal * 100) / 100;
-        const shiftedLoss = shiftedFinal - (shiftedCert - 0.005);
-        return { k, possible: true, finalGPA: shiftedFinal, cert: shiftedCert, loss: shiftedLoss };
-      })
+      .map((k) => computeGradeJump(k, extraN, extraS, N0, S0, gradeSystem))
       .map((r) => {
         const jumpName = r.k === 0 ? 'as typed' : `${r.k > 0 ? '+' : ''}${r.k} grade jump${Math.abs(r.k) > 1 ? 's' : ''}`;
         if (!r.possible) {
@@ -2529,10 +2549,11 @@
 
   const ABOUT_INFO = {
     license: 'Apache-2.0',
-    author: 'Javier Lee',
+    author: 'Lee Hao Rong Javier',
     year: 2026,
     contact: 'javierlee@u.nus.edu',
     name: 'COMPASS: Computational Optimisation for Modular Planning using Academic State Space',
+    url: 'https://cepheux.github.io/COMPASS/',
   };
 
   const LICENSE_TEXTS = {
@@ -2540,11 +2561,11 @@
   };
 
   function citationBibtex() {
-    return `@software{lee${ABOUT_INFO.year}compass,\n  author = {Lee, Hao Rong Javier},\n  title = {${ABOUT_INFO.name}},\n  year = {${ABOUT_INFO.year}},\n  url = {https://cepheux.github.io/COMPASS/\n}`;
+    return `@software{lee${ABOUT_INFO.year}compass,\n  author = {Lee Hao Rong Javier},\n  title = {${ABOUT_INFO.name}},\n  year = {${ABOUT_INFO.year}},\n  url = {${ABOUT_INFO.url}}\n}`;
   }
 
   function citationApa7() {
-    return `Lee, Javier. (${ABOUT_INFO.year}). ${ABOUT_INFO.name} [Computer software]. https://cepheux.github.io/COMPASS/`;
+    return `Lee, Javier. (${ABOUT_INFO.year}). ${ABOUT_INFO.name} [Computer software]. ${ABOUT_INFO.url}`;
   }
 
   function renderAbout() {
@@ -2563,7 +2584,10 @@
         </div>
       </div>
 
+      <div class="callout callout--warning" style="margin-top:14px">This project is provided free of charge and AS IS. The author assumes no liability for any damages, losses, or consequences resulting from its use. Use at your own risk.</div>
+
       <h3 style="margin-top:18px">Cite this project</h3>
+      <p class="panel-sub">If you use this in academic work, please consider citing it in either of these standard formats. Each button copies the exact text shown below it.</p>
 
       <div class="grid-2" style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
         <div>
@@ -2776,8 +2800,517 @@
     }
   }
 
+  // ------------------------------------------------------------------
+  // Summary: six common questions, answered directly, pulling from
+  // several other tabs. Sections are fully independent of each other,
+  // including their own parameters; nothing here computes anything the
+  // rest of the engine doesn't already compute elsewhere.
+  // ------------------------------------------------------------------
+
+  const summaryState = {
+    a: { gpa: null, maxN: 50 },
+    b: { minN: 1, maxN: 12, remainingSemesters: 2, showAdvanced: false, convenientCostFilter: 0.01, cheapestCostFilter: 0.001 },
+    c: { n1: 4, n2: 8, n3: 12, targetGpa: null },
+    d: { fixedN: 8 },
+  };
+
+  function tabHints(names) {
+    return `<div class="tab-hint-row">${names.map((n) => `<span class="tab-hint-oval">${n}</span>`).join('')}</div>`;
+  }
+
+  function renderSummary() {
+    const body = document.getElementById('summary-body');
+    const N0 = state.totalCount(),
+      S0 = state.totalScore();
+    const curGpa = state.gpa();
+    if (summaryState.a.gpa === null) summaryState.a.gpa = curGpa !== null ? Math.round(curGpa * 100) / 100 : reachState.anchor;
+    if (summaryState.c.targetGpa === null) summaryState.c.targetGpa = null; // stays optional/blank by design
+
+    body.innerHTML = `
+      <p class="panel-sub">Six questions students actually ask, each answered directly below. Every answer is real, computed from your actual transcript, not a generic example.</p>
+      <div class="disclaimer-bubble">
+        <strong>Before you read on:</strong> this page is a generalisation, built to help you understand your situation quickly. It may not be fully accurate for all students or all grading situations, and it only covers some of the analysis this tool can do. You're encouraged to go through the individual tabs yourself before making an important decision.
+      </div>
+
+      <div class="summary-section" id="summary-section-a"></div>
+      <div class="summary-section" id="summary-section-b"></div>
+      <div class="summary-section" id="summary-section-c"></div>
+      <div class="summary-section" id="summary-section-d"></div>
+      <div class="summary-section" id="summary-section-e"></div>
+      <div class="summary-section" id="summary-section-f"></div>
+    `;
+
+    renderSummarySectionA(N0, S0, curGpa);
+    renderSummarySectionB(N0, S0, curGpa);
+    renderSummarySectionC(N0, S0, curGpa);
+    renderSummarySectionD(N0, S0, curGpa);
+    renderSummarySectionE(N0, S0, curGpa);
+    renderSummarySectionF(N0, S0, curGpa);
+  }
+
+  function renderSummarySectionA(N0, S0, curGpa) {
+    const el = document.getElementById('summary-section-a');
+    const p = summaryState.a;
+    const target = p.gpa;
+
+    // Step 1: a full Reachability row for this one target, n=1..maxN.
+    let bestN = null,
+      bestCombined = Infinity,
+      anyFeasible = false;
+    const cellsHtml = [];
+    for (let n = 1; n <= p.maxN; n++) {
+      const r = Reachability.solve(n, target, N0, S0, gradeSystem);
+      if (!r.feasible) {
+        cellsHtml.push(`<td class="reach-cell is-impossible" title="n=${n}: not possible">${n}</td>`);
+        continue;
+      }
+      anyFeasible = true;
+      const combined = r.cost + 10 * r.loss;
+      if (combined < bestCombined) {
+        bestCombined = combined;
+        bestN = n;
+      }
+      const caps = [0.15, 0.075];
+      const style = `background:${heatmapColor(combined, caps[0], caps[1])}`;
+      cellsHtml.push(`<td class="reach-cell" style="${style}" title="n=${n}: ${r.guaranteed ? 'already guaranteed' : r.combo}">${n}</td>`);
+    }
+
+    let step1Para = '';
+    if (anyFeasible && bestN !== null) {
+      step1Para = `<p>To reach your target while minimising inefficiency, you should choose <strong>n = ${bestN}</strong>, the subject count with the lowest combined score (cost plus ten times loss) among everything tried up to ${p.maxN} subjects.</p>`;
+    } else {
+      step1Para = `<p>A target of ${fmt2(target)} isn't reachable within ${p.maxN} subjects from where you stand now. Try a lower target, or raise the maximum subjects considered above.</p>`;
+    }
+
+    // Step 2: Required-GPA-style detail for the recommended n (bestN),
+    // falling back to a simple message if nothing was feasible at all.
+    let step2Para = '';
+    let selResult = null;
+    if (bestN !== null) {
+      selResult = Reachability.solve(bestN, target, N0, S0, gradeSystem);
+      const bounds = Reachability.bounds(bestN, N0, S0, gradeSystem);
+      if (selResult.guaranteed) {
+        step2Para = `<p>With ${bestN} subjects remaining, your achievable range is ${fmt5(bounds.lower)} to ${fmt5(bounds.upper)}. This target is already guaranteed at that subject count: even your worst possible outcome from here keeps you at or above it.</p>`;
+      } else {
+        step2Para = `<p>With ${bestN} subjects remaining, your achievable range is ${fmt5(bounds.lower)} to ${fmt5(bounds.upper)}. To reach ${fmt2(target)}, you need an average of ${fmt5(selResult.required)} across those ${bestN} subjects. The minimal combination that does this is <strong>${selResult.combo}</strong>, which achieves ${fmt5(selResult.achieved)}. Since you only strictly needed ${fmt5(selResult.required)}, your cost (extra performance used beyond the bare minimum) is ${fmt5(selResult.cost)}. This brings your final GPA to ${fmt5(selResult.finalGPA)}, with a loss (overshoot beyond your target's own rounding bucket) of ${fmt5(selResult.loss)}.</p>`;
+      }
+    }
+
+    // Step 3: simulate a +1/-1 grade jump on the recommended combination.
+    let step3Para = '';
+    if (selResult && !selResult.guaranteed && selResult.feasible) {
+      const extraN = bestN;
+      const extraS = selResult.achieved * bestN;
+      const up = computeGradeJump(1, extraN, extraS, N0, S0, gradeSystem);
+      const down = computeGradeJump(-1, extraN, extraS, N0, S0, gradeSystem);
+      const upText = up.possible ? `one step better lands you at ${fmt5(up.finalGPA)}` : `stepping one notch better isn't possible here, you'd already be at the ceiling`;
+      const downText = down.possible ? `one step worse lands you at ${fmt5(down.finalGPA)}` : `stepping one notch worse isn't possible here, you'd already be at the floor`;
+      step3Para = `<p>If that plan's overall performance shifted by one notch either way: ${upText}, and ${downText}.</p>`;
+    }
+
+    el.innerHTML = `
+      <h3 class="summary-question"><strong>What are the exact grades I need to reach any target?</strong></h3>
+      ${tabHints(['Reachability', 'Required GPA', 'What if', 'Module load'])}
+      <div class="summary-params controls-row">
+        <div class="control-group"><h3>Your target</h3>
+          <div class="control-fields"><div class="control-field"><label for="sum-a-gpa">Target GPA</label>
+            <input id="sum-a-gpa" type="number" step="0.01" value="${target}" /></div></div>
+        </div>
+        <div class="control-group"><h3>Search range</h3>
+          <div class="control-fields"><div class="control-field"><label for="sum-a-maxn">Maximum n till graduation</label>
+            <input id="sum-a-maxn" type="number" min="1" step="1" value="${p.maxN}" /></div></div>
+        </div>
+      </div>
+      <div class="summary-strip"><table class="dgrid" style="width:auto"><tbody><tr>${cellsHtml.join('')}</tr></tbody></table></div>
+      ${step1Para}
+      ${step2Para}
+      ${step3Para}
+    `;
+
+    document.getElementById('sum-a-gpa').addEventListener('change', (e) => {
+      summaryState.a.gpa = Number(e.target.value);
+      renderSummarySectionA(N0, S0, curGpa);
+    });
+    document.getElementById('sum-a-maxn').addEventListener('change', (e) => {
+      summaryState.a.maxN = Math.max(1, Math.floor(Number(e.target.value)));
+      renderSummarySectionA(N0, S0, curGpa);
+    });
+  }
+
+  /**
+   * Solves the MDP and walks the optimal policy forward along its own
+   * expected path, exactly the pattern the Policy tab itself uses.
+   * Shared here so Summary section B can reuse it without duplicating
+   * the walk-forward logic. Returns { result, steps } where steps is
+   * [{ stage, choice }, ...].
+   */
+  function computePolicyWalk(N0, S0, horizon, choiceSet, probModel, util) {
+    const result = Reachability.solveMDP(N0, S0, horizon, choiceSet, probModel, gradeSystem, util);
+    const steps = [];
+    let N = N0,
+      sigma = 0;
+    for (let t = 0; t < horizon; t++) {
+      const v = result.valueAt(t, N, sigma);
+      steps.push({ stage: t + 1, choice: v.bestChoice });
+      N += v.bestChoice;
+      const pmf = probModel.convolveN(v.bestChoice);
+      let ev = 0;
+      pmf.forEach((p, s) => (ev += p * s));
+      sigma += Math.round(ev);
+    }
+    return { result, steps };
+  }
+
+  function renderSummarySectionB(N0, S0, curGpa) {
+    const el = document.getElementById('summary-section-b');
+    const p = summaryState.b;
+    const invalidRange = p.minN >= p.maxN;
+
+    let resultsHtml = '';
+    if (invalidRange) {
+      resultsHtml = `<div class="callout callout--warning">Minimum n must be less than maximum n. Adjust the values above.</div>`;
+    } else {
+      const anchor = curGpa !== null ? curGpa : reachState.anchor;
+
+      // Steps 1 and 2 both reuse computeEfficiencyForN's cheapest/convenient
+      // logic, run once per n across the requested range, then filtered.
+      const convenientRows = [];
+      const cheapestRows = [];
+      for (let n = p.minN; n <= p.maxN; n++) {
+        const eff = computeEfficiencyForN(n, N0, S0);
+        if (eff.convenientTarget !== null && eff.convenientTarget >= anchor && eff.convenientCost <= p.convenientCostFilter) {
+          convenientRows.push({ n, target: eff.convenientTarget, cost: eff.convenientCost, combo: eff.convenientCombo });
+        }
+        if (eff.cheapestTarget !== null && eff.cheapestTarget <= anchor && eff.cheapestCost <= p.cheapestCostFilter) {
+          cheapestRows.push({ n, target: eff.cheapestTarget, cost: eff.cheapestCost, combo: eff.cheapestCombo });
+        }
+      }
+      cheapestRows.sort((a, b) => b.target - a.target);
+
+      const step1Table =
+        convenientRows.length > 0
+          ? `<div class="grid-wrap"><table class="dgrid"><thead><tr><th>n</th><th>Most convenient target GPA (expected final GPA to aim for)</th><th>Cost</th><th>Combination</th></tr></thead><tbody>${convenientRows
+              .map((r) => `<tr><td>${r.n}</td><td>${fmt2(r.target)}</td><td>${fmt5(r.cost)}</td><td>${r.combo}</td></tr>`)
+              .join('')}</tbody></table></div>`
+          : `<p>No target in range clears both filters (at or above your current GPA, and cost at or below ${p.convenientCostFilter}) for any subject count between ${p.minN} and ${p.maxN}.</p>`;
+
+      const step2Table =
+        cheapestRows.length > 0
+          ? `<div class="grid-wrap"><table class="dgrid"><thead><tr><th>n</th><th>Cheapest target GPA (expected final GPA to aim for)</th><th>Combination</th></tr></thead><tbody>${cheapestRows
+              .map((r) => `<tr><td>${r.n}</td><td>${fmt2(r.target)}</td><td>${r.combo}</td></tr>`)
+              .join('')}</tbody></table></div>`
+          : `<p>No target in range clears both filters (at or below your current GPA, and cost at or below ${p.cheapestCostFilter}) for any subject count between ${p.minN} and ${p.maxN}.</p>`;
+
+      // Steps 3 and 4: exact policy solves for two different objectives,
+      // over a choice set derived from the subject-count range spread
+      // evenly across the remaining semesters.
+      const choiceLo = Math.max(1, Math.round(p.minN / p.remainingSemesters));
+      const choiceHi = Math.max(1, Math.round(p.maxN / p.remainingSemesters));
+      const choiceSet = [];
+      for (let c = choiceLo; c <= choiceHi; c++) choiceSet.push(c);
+      const probModel = new ProbabilityModel(gradeSystem, gradeSystem.scoreOf(beliefs.centerLabel), beliefsRawSpread(gradeSystem));
+
+      const expectedWalk = computePolicyWalk(N0, S0, p.remainingSemesters, choiceSet, probModel, (gpa) => gpa);
+      const expectedSeq = expectedWalk.steps.map((s) => s.choice).join(' \u2192 ');
+      const beliefMean = gradeSystem.scoreOf(beliefs.centerLabel);
+      const allSame = new Set(expectedWalk.steps.map((s) => s.choice)).size === 1;
+      const direction = curGpa === null ? null : beliefMean > curGpa ? 'above' : beliefMean < curGpa ? 'below' : 'equal to';
+      const step3Note =
+        allSame && direction && direction !== 'equal to'
+          ? `<div class="callout callout--purple">Every semester recommends the same choice here. That's expected, not a bug: your expected grade curve sits ${direction} your current GPA, and maximising a plain expected value has no in-between answer, only an extreme one, for any choice set.</div>`
+          : '';
+
+      const step3Para = `<p>The best sequence of choices across every semester you have left, given your expected grade curve: this reaches an optimal expected value of ${fmt5(expectedWalk.result.expectedUtility)} for expected final GPA, planning ${p.remainingSemesters} semester(s) ahead: ${expectedSeq}.</p>${step3Note}`;
+
+      const targetWalk = computePolicyWalk(N0, S0, p.remainingSemesters, choiceSet, probModel, (gpa) => (gpa >= anchor ? 1 : 0));
+      const targetSeq = targetWalk.steps.map((s) => s.choice).join(' \u2192 ');
+      const step4Para = `<p>Optimal expected value of P(final GPA \u2265 ${fmt2(anchor)}): ${pct(targetWalk.result.expectedUtility)}, following ${targetSeq}.</p>`;
+
+      const step5Para = `<p>More can be done here when two subject counts are compared directly against each other, side by side. That comparison lives on the Plan compare tab.</p>`;
+
+      resultsHtml = `
+        <p>Assuming you expect to do better than your current GPA, meaning you're putting in more effort than the status quo, here is the subject count and target that stays most convenient while keeping cost low:</p>
+        ${step1Table}
+        <p>Assuming instead you expect to do worse than your current GPA, meaning you want a more relaxed set of semesters, and without assuming any particular grade distribution, here is the cheapest target available at each subject count:</p>
+        ${step2Table}
+        ${step3Para}
+        ${step4Para}
+        ${step5Para}
+      `;
+    }
+
+    el.innerHTML = `
+      <h3 class="summary-question"><strong>How should I choose my target and my workload?</strong></h3>
+      ${tabHints(['Efficiency', 'Plan compare', 'Policy', 'Load planner'])}
+      <div class="summary-params controls-row">
+        <div class="control-group"><h3>Subject count range</h3>
+          <div class="control-fields">
+            <div class="control-field"><label for="sum-b-minn">Minimum n</label><input id="sum-b-minn" type="number" min="1" step="1" value="${p.minN}" /></div>
+            <div class="control-field"><label for="sum-b-maxn">Maximum n</label><input id="sum-b-maxn" type="number" min="1" step="1" value="${p.maxN}" /></div>
+          </div>
+        </div>
+        <div class="control-group"><h3>Planning horizon</h3>
+          <div class="control-fields"><div class="control-field"><label for="sum-b-sems">Remaining semesters to plan</label>
+            <input id="sum-b-sems" type="number" min="1" max="4" step="1" value="${p.remainingSemesters}" /></div></div>
+        </div>
+      </div>
+      <button class="link-btn" id="sum-b-advanced-toggle">${p.showAdvanced ? 'hide' : 'show'} advanced filters</button>
+      <div class="summary-params controls-row" style="${p.showAdvanced ? '' : 'display:none'}" id="sum-b-advanced">
+        <div class="control-group"><h3>Advanced</h3>
+          <div class="control-fields">
+            <div class="control-field"><label for="sum-b-convfilter">Most-convenient cost filter</label><input id="sum-b-convfilter" type="number" step="0.001" value="${p.convenientCostFilter}" /></div>
+            <div class="control-field"><label for="sum-b-cheapfilter">Cheapest cost filter</label><input id="sum-b-cheapfilter" type="number" step="0.0001" value="${p.cheapestCostFilter}" /></div>
+          </div>
+        </div>
+      </div>
+      ${resultsHtml}
+    `;
+
+    document.getElementById('sum-b-minn').addEventListener('change', (e) => {
+      summaryState.b.minN = Math.max(1, Math.floor(Number(e.target.value)));
+      renderSummarySectionB(N0, S0, curGpa);
+    });
+    document.getElementById('sum-b-maxn').addEventListener('change', (e) => {
+      summaryState.b.maxN = Math.max(1, Math.floor(Number(e.target.value)));
+      renderSummarySectionB(N0, S0, curGpa);
+    });
+    document.getElementById('sum-b-sems').addEventListener('change', (e) => {
+      summaryState.b.remainingSemesters = Math.max(1, Math.min(4, Math.floor(Number(e.target.value))));
+      renderSummarySectionB(N0, S0, curGpa);
+    });
+    document.getElementById('sum-b-advanced-toggle').addEventListener('click', () => {
+      summaryState.b.showAdvanced = !summaryState.b.showAdvanced;
+      renderSummarySectionB(N0, S0, curGpa);
+    });
+    document.getElementById('sum-b-convfilter').addEventListener('change', (e) => {
+      summaryState.b.convenientCostFilter = Number(e.target.value);
+      renderSummarySectionB(N0, S0, curGpa);
+    });
+    document.getElementById('sum-b-cheapfilter').addEventListener('change', (e) => {
+      summaryState.b.cheapestCostFilter = Number(e.target.value);
+      renderSummarySectionB(N0, S0, curGpa);
+    });
+  }
+  function renderSummarySectionC(N0, S0, curGpa) {
+    const el = document.getElementById('summary-section-c');
+    const p = summaryState.c;
+    const target = p.targetGpa !== null ? p.targetGpa : curGpa !== null ? curGpa : reachState.anchor;
+    const ns = [p.n1, p.n2, p.n3];
+    const an = new Analysis(gradeSystem);
+    const probModel = new ProbabilityModel(gradeSystem, gradeSystem.scoreOf(beliefs.centerLabel), beliefsRawSpread(gradeSystem));
+
+    const rows = ns.map((n) => {
+      const r = Reachability.solve(n, target, N0, S0, gradeSystem);
+      const conf = r.feasible && !r.guaranteed ? probModel.targetConfidence(n, Reachability.requiredScaledTotal(n, target, N0, S0, gradeSystem)) : r.guaranteed ? 1 : 0;
+      const consequence = probModel.cvar(n, 0.1, N0, S0, gradeSystem).cvar;
+      return { n, feasible: r.feasible, guaranteed: r.guaranteed, combo: r.combo, conf, consequence };
+    });
+
+    const step1Table = `<div class="grid-wrap"><table class="dgrid"><thead><tr><th>Plan</th><th>Even possible?</th><th>Grades needed</th><th>Real-world odds</th><th>GPA if it goes badly</th></tr></thead><tbody>${rows
+      .map((r) => `<tr><th>n=${r.n}</th><td>${r.guaranteed ? 'Already achieved' : r.feasible ? 'Yes' : 'No'}</td><td>${r.guaranteed ? 'Already achieved' : r.feasible ? r.combo : '-'}</td><td>${pct(r.conf)}</td><td>${fmt5(r.consequence)}</td></tr>`)
+      .join('')}</tbody></table></div>`;
+
+    const feasibleRows = rows.filter((r) => r.feasible);
+    let step1Para = '<p>None of these subject counts can reach this target, so no recommendation can be made from odds alone.</p>';
+    if (feasibleRows.length > 0) {
+      const maxConf = Math.max(...feasibleRows.map((r) => r.conf));
+      const winners = feasibleRows.filter((r) => r.conf === maxConf).sort((a, b) => a.n - b.n);
+      step1Para = `<p>Plan <strong>n = ${winners[0].n}</strong> should be chosen, since it has the highest odds based on your expected grade curve.</p>`;
+    }
+
+    const effRows = ns.map((n) => {
+      const eff = computeEfficiencyForN(n, N0, S0);
+      return { n, target: eff.cheapestTarget, cost: eff.cheapestCost, combo: eff.cheapestCombo };
+    });
+    const validEff = effRows.filter((r) => r.target !== null);
+    let step2Winner = '';
+    if (validEff.length > 0) {
+      const maxTarget = Math.max(...validEff.map((r) => r.target));
+      const winners = validEff.filter((r) => r.target === maxTarget).sort((a, b) => a.n - b.n);
+      step2Winner = `<p>Plan <strong>n = ${winners[0].n}</strong> should be chosen, since it gives the highest final GPA while minimising loss.</p>`;
+    }
+    const step2Detail = effRows
+      .map((r) => (r.target !== null ? `<p>With ${r.n} subjects, final GPA ${fmt2(r.target)} minimises loss compared to neighbouring options, needing ${r.combo}.</p>` : `<p>With ${r.n} subjects, no nearby target could be found.</p>`))
+      .join('');
+
+    el.innerHTML = `
+      <h3 class="summary-question"><strong>Given some knowledge of the grades I'll score, and maybe a target Final GPA, what's the best number of subjects I should take?</strong></h3>
+      ${tabHints(['Efficiency', 'Plan compare', 'Load planner'])}
+      <div class="summary-params controls-row">
+        <div class="control-group"><h3>Subject counts to compare</h3>
+          <div class="control-fields">
+            <div class="control-field"><label for="sum-c-n1">n1</label><input id="sum-c-n1" type="number" min="1" step="1" value="${p.n1}" /></div>
+            <div class="control-field"><label for="sum-c-n2">n2</label><input id="sum-c-n2" type="number" min="1" step="1" value="${p.n2}" /></div>
+            <div class="control-field"><label for="sum-c-n3">n3</label><input id="sum-c-n3" type="number" min="1" step="1" value="${p.n3}" /></div>
+          </div>
+        </div>
+        <div class="control-group"><h3>Target GPA (optional)</h3>
+          <div class="control-fields"><div class="control-field"><label for="sum-c-target">leave blank to use your current GPA</label>
+            <input id="sum-c-target" type="number" step="0.01" placeholder="blank" value="${p.targetGpa !== null ? p.targetGpa : ''}" /></div></div>
+        </div>
+      </div>
+      ${step1Table}
+      ${step1Para}
+      ${step2Detail}
+      ${step2Winner}
+    `;
+
+    document.getElementById('sum-c-n1').addEventListener('change', (e) => {
+      summaryState.c.n1 = Math.max(1, Math.floor(Number(e.target.value)));
+      renderSummarySectionC(N0, S0, curGpa);
+    });
+    document.getElementById('sum-c-n2').addEventListener('change', (e) => {
+      summaryState.c.n2 = Math.max(1, Math.floor(Number(e.target.value)));
+      renderSummarySectionC(N0, S0, curGpa);
+    });
+    document.getElementById('sum-c-n3').addEventListener('change', (e) => {
+      summaryState.c.n3 = Math.max(1, Math.floor(Number(e.target.value)));
+      renderSummarySectionC(N0, S0, curGpa);
+    });
+    document.getElementById('sum-c-target').addEventListener('change', (e) => {
+      summaryState.c.targetGpa = e.target.value === '' ? null : Number(e.target.value);
+      renderSummarySectionC(N0, S0, curGpa);
+    });
+  }
+  function renderSummarySectionD(N0, S0, curGpa) {
+    const el = document.getElementById('summary-section-d');
+    const p = summaryState.d;
+    const n = p.fixedN;
+
+    // Step 1: directly add 1/2/3 more A's, or 1/2/3 more F's, to the
+    // CURRENT transcript (not a hypothetical n-subject semester).
+    const maxScore = gradeSystem.maxScore(),
+      minScore = gradeSystem.minScore();
+    const aRows = [1, 2, 3].map((k) => (N0 + k > 0 ? (S0 + k * maxScore) / (N0 + k) : null));
+    const fRows = [1, 2, 3].map((k) => (N0 + k > 0 ? (S0 + k * minScore) / (N0 + k) : null));
+    const step1Para = `<p>If you added 1, 2, or 3 more A's from here: your final GPA would become ${aRows.map((v, i) => `${fmt5(v)} (+${i + 1})`).join(', ')}. If you added 1, 2, or 3 more F's instead: it would become ${fRows.map((v, i) => `${fmt5(v)} (+${i + 1})`).join(', ')}.</p>`;
+
+    // Step 2: classification bands, highest threshold to lowest, stopping
+    // (inclusively) at the first band already guaranteed with n subjects left.
+    const bands = window.COMPASS.NUS_CLASSIFICATIONS_DEFAULT.slice().sort((a, b) => b.threshold - a.threshold);
+    const bandRows = [];
+    for (const band of bands) {
+      const r = Reachability.solve(n, band.threshold, N0, S0, gradeSystem);
+      bandRows.push({ name: band.name, threshold: band.threshold, r });
+      if (r.guaranteed) break;
+    }
+    const step2List = bandRows
+      .map((b) => (b.r.guaranteed ? `<li><strong>${b.name}</strong> (${fmt2(b.threshold)}): already guaranteed, even if you fail all ${n} remaining subjects.</li>` : b.r.feasible ? `<li><strong>${b.name}</strong> (${fmt2(b.threshold)}): needs ${b.r.combo}.</li>` : `<li><strong>${b.name}</strong> (${fmt2(b.threshold)}): not reachable with ${n} subjects left.</li>`))
+      .join('');
+
+    // Step 3: risk scenarios for fixed n.
+    const probModel = new ProbabilityModel(gradeSystem, gradeSystem.scoreOf(beliefs.centerLabel), beliefsRawSpread(gradeSystem));
+    const excellent = probModel.percentile(n, 0.9, N0, S0, gradeSystem);
+    const normal = probModel.percentile(n, 0.5, N0, S0, gradeSystem);
+    const hard = probModel.percentile(n, 0.1, N0, S0, gradeSystem);
+    const worst = probModel.cvar(n, 0.1, N0, S0, gradeSystem).cvar;
+    const step3Para = `<p>Given your expected grade curve, with ${n} subjects left: an excellent semester lands around ${fmt5(excellent)}, a normal semester around ${fmt5(normal)}, a hard semester around ${fmt5(hard)}, and a genuine worst case (your realistic worst outcomes, averaged) around ${fmt5(worst)}.</p>`;
+
+    el.innerHTML = `
+      <h3 class="summary-question"><strong>How much room do I have for a bad semester, and how many would it take before I'm at real risk?</strong></h3>
+      ${tabHints(['Bounds', 'Feasibility', 'Risk', 'Classification', 'What if'])}
+      <div class="summary-params controls-row">
+        <div class="control-group"><h3>Subjects remaining</h3>
+          <div class="control-fields"><div class="control-field"><label for="sum-d-n">Fixed n</label>
+            <input id="sum-d-n" type="number" min="1" step="1" value="${n}" /></div></div>
+        </div>
+      </div>
+      ${step1Para}
+      <p>Working from the highest classification band down, here's what's needed until the first one that's already safe no matter what:</p>
+      <ul class="clean">${step2List}</ul>
+      ${step3Para}
+    `;
+
+    document.getElementById('sum-d-n').addEventListener('change', (e) => {
+      summaryState.d.fixedN = Math.max(1, Math.floor(Number(e.target.value)));
+      renderSummarySectionD(N0, S0, curGpa);
+    });
+  }
+  function renderSummarySectionE(N0, S0, curGpa) {
+    const el = document.getElementById('summary-section-e');
+    let para;
+    if (curGpa !== null && curGpa >= 4.495) {
+      const probModel = new ProbabilityModel(gradeSystem, gradeSystem.scoreOf(beliefs.centerLabel), beliefsRawSpread(gradeSystem));
+      let foundN = null;
+      for (let n = 1; n <= 30; n++) {
+        const h = probModel.entropy(n);
+        if (Math.pow(2, h) > 3) {
+          foundN = n;
+          break;
+        }
+      }
+      const answerN = foundN === null ? null : Math.max(0, foundN - 1);
+      para =
+        answerN === null
+          ? `<p>Within the range checked, your realistic futures never exceed 3 effectively-distinct outcomes, so this specific limit doesn't apply to you right now.</p>`
+          : `<p>Given your expected grade curve, you could take up to <strong>${answerN}</strong> more class${answerN === 1 ? '' : 'es'} before your realistic range of futures would start including outcomes below a B+, based on how many genuinely distinct outcomes remain open at each subject count.</p>`;
+    } else {
+      para = `<p>Whether this is worth worrying about depends on how willing you are to risk a lower grade for a chance at a better one. This summary page isn't able to generalise a clean answer for you at this point.</p>`;
+    }
+
+    el.innerHTML = `
+      <h3 class="summary-question"><strong>How much room do I still have to change my future, and how fragile is my current standing?</strong></h3>
+      ${tabHints(['Entropy'])}
+      ${para}
+    `;
+  }
+  function renderSummarySectionF(N0, S0, curGpa) {
+    const el = document.getElementById('summary-section-f');
+    const labels = gradeSystem.allLabels();
+    const originalTable = state.semesters.map((s) => labels.map((l) => s.counts[l] || 0));
+    const nonEmptySemesters = state.semesters.filter((s) => Object.keys(s.counts).length > 0).length;
+
+    let step1Para;
+    if (nonEmptySemesters < 2) {
+      step1Para = `<p>With fewer than two semesters of data entered, this comparison isn't available yet.</p>`;
+    } else {
+      const an = new Analysis(gradeSystem);
+      const sample = an.sampleAllocationFiber(state.semesters, labels, 4000, Math.floor(Math.random() * 1e9));
+      const actualVariance = semesterGpaVariance(originalTable, labels, gradeSystem);
+      const fiberVariances = sample.samples.map((t) => semesterGpaVariance(t, labels, gradeSystem)).filter((v) => v !== null);
+      if (actualVariance === null || fiberVariances.length === 0) {
+        step1Para = `<p>Not enough sampled alternatives were found to make this comparison yet. Try the Allocation tab directly for more control.</p>`;
+      } else {
+        const fiberAverage = fiberVariances.reduce((a, b) => a + b, 0) / fiberVariances.length;
+        const moreVariableCount = fiberVariances.filter((v) => v > actualVariance).length;
+        const percentileMoreVariable = (moreVariableCount / fiberVariances.length) * 100;
+        if (actualVariance <= fiberAverage) {
+          step1Para = `<p>We are <strong>${percentileMoreVariable.toFixed(0)}%</strong> confident that your results are not random on average: your semester-to-semester GPA was steadier than most equally-valid versions of your story could have been.</p>`;
+        } else {
+          const f = 100 - percentileMoreVariable;
+          step1Para = `<p>We are <strong>${f.toFixed(0)}%</strong> confident that your results are random: your semester-to-semester GPA bounced around more than most equally-valid versions of your story would have.</p>`;
+        }
+      }
+    }
+
+    // Step 2: plain-language trend, avoiding "epistemic"/"aleatoric" by name.
+    let step2Para;
+    const obsVar = bayesianState.obsSpread * bayesianState.obsSpread;
+    const track = BayesianTrack.track(gradeSystem, state.semesters, beliefs.centerLabel, beliefs.tierSpread, obsVar);
+    const dataStages = track.filter((t, i) => state.semesters[i] && Object.keys(state.semesters[i].counts).length > 0);
+    if (dataStages.length < 2) {
+      step2Para = `<p>With fewer than two semesters of data, it's too early to tell whether tracking your grade history is sharpening predictions about you specifically.</p>`;
+    } else {
+      const firstReducible = Math.max(0, dataStages[0].predictiveVariance - obsVar);
+      const lastReducible = Math.max(0, dataStages[dataStages.length - 1].predictiveVariance - obsVar);
+      if (firstReducible > 1e-9 && lastReducible < firstReducible * 0.7) {
+        step2Para = `<p>As your semesters have gone by, more data has genuinely sharpened the prediction about your future grades: the part of the uncertainty that comes from not yet knowing your true ability has shrunk noticeably.</p>`;
+      } else {
+        step2Para = `<p>Tracking more semesters hasn't sharpened predictions about you very much: most of your remaining uncertainty looks like genuine, ordinary variation from one grade to the next, not something more data would resolve.</p>`;
+      }
+    }
+
+    el.innerHTML = `
+      <h3 class="summary-question"><strong>Was the way my semesters unfolded typical, a fluke, and does my grade history tell me anything?</strong></h3>
+      ${tabHints(['Bayesian', 'Allocation'])}
+      ${step1Para}
+      ${step2Para}
+    `;
+  }
+
   const TAB_RENDERERS = {
     transcript: renderTranscript,
+    summary: renderSummary,
     reachability: renderReachability,
     'required-gpa': renderRequiredGpa,
     'module-load': renderModuleLoad,

@@ -39,8 +39,9 @@ async function main() {
   };
 
   check('no runtime JS errors during boot', consoleErrors.length === 0, JSON.stringify(consoleErrors));
-  check('tab bar rendered 19 tabs (18 + Skill Tree)', document.querySelectorAll('.tab-btn').length === 19, document.querySelectorAll('.tab-btn').length);
-  check('18 tabs have an info button (Skill Tree deliberately has none, it IS the deep-dive)', document.querySelectorAll('.info-btn').length === 18);
+  check('tab bar rendered 20 tabs (19 + Summary)', document.querySelectorAll('.tab-btn').length === 20, document.querySelectorAll('.tab-btn').length);
+  check('19 tabs have an info button (Skill Tree deliberately has none, it IS the deep-dive)', document.querySelectorAll('.info-btn').length === 19);
+  check('Summary is the second tab, right after Transcript', document.querySelectorAll('.tab-btn')[1].textContent.trim() === 'Summary');
 
   // --- Transcript: reset, random, structure ---
   check('transcript has 12 grade rows', document.querySelectorAll('#transcript-wrap tbody tr').length === 12);
@@ -82,6 +83,65 @@ async function main() {
   aY1S1.focus();
   aY1S1.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
   check('ArrowRight moves focus to the next semester', document.activeElement === document.querySelector('td[data-role="sem"][data-label="A"][data-sem="1"] input'));
+
+  // --- Summary: six independent sections, each pulling from several other tabs ---
+  goTo('summary');
+  check('summary shows the disclaimer bubble before the sections', !!document.querySelector('.disclaimer-bubble'));
+  check('disclaimer mentions generalisation and encourages visiting individual tabs', document.querySelector('.disclaimer-bubble').textContent.includes('generalisation') && document.querySelector('.disclaimer-bubble').textContent.toLowerCase().includes('encouraged'));
+  check('summary renders all 6 sections', document.querySelectorAll('.summary-section').length === 6, document.querySelectorAll('.summary-section').length);
+  check('section questions are bolded and unnumbered', [...document.querySelectorAll('.summary-question')].every((h) => h.querySelector('strong') && !/^[A-F0-9][).]/.test(h.textContent.trim())));
+
+  // Section A
+  const secA = document.getElementById('summary-section-a');
+  check('section A hints Reachability, Required GPA, What if, Module load', ['Reachability', 'Required GPA', 'What if', 'Module load'].every((t) => [...secA.querySelectorAll('.tab-hint-oval')].some((o) => o.textContent === t)));
+  check('section A renders a reachability strip', secA.querySelectorAll('.reach-cell').length === 50, secA.querySelectorAll('.reach-cell').length);
+  check('section A states a recommended n with the lowest combined score', /n = \d+/.test(secA.textContent));
+  check('section A includes the required-GPA-style paragraph with cost and loss', secA.textContent.includes('cost') && secA.textContent.includes('loss'));
+  const sumAGpa = document.getElementById('sum-a-gpa');
+  setInput(sumAGpa, 4.999);
+  check('section A handles an unreachable target gracefully (no recommended-n message)', document.getElementById('summary-section-a').textContent.includes("isn't reachable") || !document.getElementById('summary-section-a').textContent.includes('undefined'));
+  setInput(sumAGpa, 4.7);
+
+  // Section B
+  const secB = document.getElementById('summary-section-b');
+  check('section B hints Efficiency, Plan compare, Policy, Load planner', ['Efficiency', 'Plan compare', 'Policy', 'Load planner'].every((t) => [...secB.querySelectorAll('.tab-hint-oval')].some((o) => o.textContent === t)));
+  check('section B advanced filters are hidden by default', document.getElementById('sum-b-advanced').style.display === 'none');
+  const sumBMin = document.getElementById('sum-b-minn'),
+    sumBMax = document.getElementById('sum-b-maxn');
+  setInput(sumBMin, 10);
+  setInput(sumBMax, 5);
+  check('section B rejects minN >= maxN with a clear warning, not a crash', document.getElementById('summary-section-b').textContent.includes('must be less than'));
+  check('section B still shows its input controls after an invalid range (does not vanish)', !!document.getElementById('sum-b-minn') && !!document.getElementById('sum-b-maxn'));
+  setInput(sumBMin, 1);
+  setInput(sumBMax, 12);
+  check('section B recovers with a valid range', !document.getElementById('summary-section-b').textContent.includes('must be less than'));
+  check('section B mentions a policy sequence with an arrow', document.getElementById('summary-section-b').textContent.includes('\u2192'));
+  check('section B step 5 points to Plan compare', document.getElementById('summary-section-b').textContent.includes('Plan compare'));
+
+  // Section C
+  const secC = document.getElementById('summary-section-c');
+  check('section C hints Efficiency, Plan compare, Load planner', ['Efficiency', 'Plan compare', 'Load planner'].every((t) => [...secC.querySelectorAll('.tab-hint-oval')].some((o) => o.textContent === t)));
+  check('section C renders the 5-column plan table (no room-for-error/extra-used columns)', document.querySelectorAll('#summary-section-c table.dgrid thead th').length === 5, document.querySelectorAll('#summary-section-c table.dgrid thead th').length);
+  check('section C recommends a plan by n', /n = \d+/.test(secC.textContent));
+  check('target GPA field is blank by default', document.getElementById('sum-c-target').value === '');
+
+  // Section D
+  const secD = document.getElementById('summary-section-d');
+  check('section D hints Bounds, Feasibility, Risk, Classification, What if', ['Bounds', 'Feasibility', 'Risk', 'Classification', 'What if'].every((t) => [...secD.querySelectorAll('.tab-hint-oval')].some((o) => o.textContent === t)));
+  check('section D states final GPA for +1/+2/+3 A and F sensitivity', document.getElementById('summary-section-d').textContent.includes('(+1)') && document.getElementById('summary-section-d').textContent.includes('(+3)'));
+  check('section D lists classification bands stopping at the first guaranteed one', document.querySelectorAll('#summary-section-d ul.clean li').length >= 1);
+  check('section D reports excellent/normal/hard/worst scenario language', ['excellent semester', 'normal semester', 'hard semester', 'worst case'].every((phrase) => document.getElementById('summary-section-d').textContent.includes(phrase)));
+
+  // Section E
+  const secE = document.getElementById('summary-section-e');
+  check('section E hints Entropy only', secE.querySelectorAll('.tab-hint-oval').length === 1 && secE.querySelector('.tab-hint-oval').textContent === 'Entropy');
+  check('section E responds to the >= 4.495 branch for this high-GPA reference transcript', document.getElementById('summary-section-e').textContent.includes('more class'));
+
+  // Section F
+  const secF = document.getElementById('summary-section-f');
+  check('section F hints Bayesian, Allocation', ['Bayesian', 'Allocation'].every((t) => [...secF.querySelectorAll('.tab-hint-oval')].some((o) => o.textContent === t)));
+  check('section F states a confidence percentage about randomness', /\d+%/.test(secF.textContent) && (secF.textContent.includes('not random') || secF.textContent.includes('is random')));
+  check('section F avoids the words epistemic/aleatoric per the no-jargon request', !secF.textContent.toLowerCase().includes('epistemic') && !secF.textContent.toLowerCase().includes('aleatoric'));
 
   // --- Reachability: transposed axes + color legend + shared Beliefs ---
   goTo('reachability');
@@ -134,7 +194,7 @@ async function main() {
   goTo('plan-compare');
   check('plan-compare defaults to plans 4, 5, 6', ['pc-plan-0', 'pc-plan-1', 'pc-plan-2'].every((id, i) => document.getElementById(id) && document.getElementById(id).value === String([4, 5, 6][i])), ['pc-plan-0', 'pc-plan-1', 'pc-plan-2'].map((id) => document.getElementById(id) && document.getElementById(id).value));
   const pcHeaders = [...document.querySelectorAll('#plan-compare-body thead th')].map((th) => th.textContent);
-  check('plan-compare table includes a room-for-error column (formerly "Margin")', pcHeaders.some((h) => h.includes('Room for error')), pcHeaders.join(','));
+  check('plan-compare table no longer includes a room-for-error column (removed per request)', !pcHeaders.some((h) => h.includes('Room for error')), pcHeaders.join(','));
   check('plan-compare table includes a fragility column (formerly "Robustness (Risk)")', pcHeaders.some((h) => h.includes('Fragility')), pcHeaders.join(','));
   check('plan-compare table includes a real-world-odds column (formerly "Likelihood (Confidence)")', pcHeaders.some((h) => h.includes('Real-world odds')), pcHeaders.join(','));
   check('plan-compare table includes an "if it goes badly" column (formerly "Consequence (CVaR)")', pcHeaders.some((h) => h.includes('If it goes badly')), pcHeaders.join(','));
@@ -352,7 +412,11 @@ async function main() {
   check('about shows year 2026', document.getElementById('about-body').textContent.includes('2026'));
   check('about has no editable inputs (license/author/etc. are fixed, not user-editable)', document.querySelectorAll('#about-body input, #about-body select, #about-body textarea').length === 0);
   check('about renders a BibTeX citation with the COMPASS name', [...aboutPres].some((p) => p.textContent.includes('@software') && p.textContent.includes('COMPASS')));
-  check('about renders an APA7 citation with the COMPASS name', [...aboutPres].some((p) => p.textContent.includes('Lee, H. R. J.') && p.textContent.includes('COMPASS')));
+  check('about BibTeX author has no comma (Lee Hao Rong Javier, not Lee, Hao Rong Javier)', [...aboutPres].some((p) => p.textContent.includes('author = {Lee Hao Rong Javier}')));
+  check('about BibTeX includes the project URL', [...aboutPres].some((p) => p.textContent.includes('cepheux.github.io/COMPASS')));
+  check('about renders an APA7 citation in the exact requested format', [...aboutPres].some((p) => p.textContent.includes('Lee, Javier. (2026)') && p.textContent.includes('COMPASS') && p.textContent.includes('cepheux.github.io/COMPASS')));
+  check('about includes the liability disclaimer', document.getElementById('about-body').textContent.includes('provided free of charge and AS IS'));
+  check('about license text is still unchanged Apache 2.0', [...aboutPres].some((p) => p.textContent.includes('Apache License, Version 2.0')));
   check('about renders copy buttons for both citation formats', !!document.getElementById('copy-bibtex') && !!document.getElementById('copy-apa7'));
 
   // --- Tiered info panels (need -> diagram -> secondary/math/university) ---
