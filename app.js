@@ -3136,7 +3136,6 @@
         ${step2Table}
         ${step3Para}
         ${step4Para}
-        ${step5Para}
       `;
     }
 
@@ -3360,11 +3359,9 @@
       let answerN = 0;
       for (let n = 1; n <= maxNChecked; n++) {
         const h = probModel.entropy(n);
-        if (h <= 3) {
-          answerN = n; // keep advancing; take the LARGEST n satisfying the condition
-        }
+        if (h <= 3) answerN = n; // keep advancing; take the LARGEST n satisfying the condition
       }
-      para = `<p>Given your expected grade curve, you could take up to <strong>${answerN}</strong>$ more class${answerN === 1 ? '' : 'es'} (out of ${maxNChecked} checked) before your realistic range of futures would start including outcomes below a B+, based on how many genuinely distinct outcomes remain open at each subject count.</p>`;
+      para = `<p>Given your expected grade curve, you could take up to <strong>${answerN}</strong> more class${answerN === 1 ? '' : 'es'} (out of ${maxNChecked} checked) before your realistic range of futures would start including outcomes below a B+, based on how many genuinely distinct outcomes remain open at each subject count.</p>`;
     } else {
       para = `<p>Whether this is worth worrying about depends on how willing you are to risk a lower grade for a chance at a better one. This summary page isn't able to generalise a clean answer for you at this point.</p>`;
     }
